@@ -3,10 +3,8 @@
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
-  const repoName = 'personalPetPages';
-
-  export default defineConfig(({ mode }) => ({
-    base: mode === 'production' ? `/${repoName}/` : '/',
+  export default defineConfig({
+    base: '/',
     plugins: [react()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
@@ -65,10 +63,10 @@
     },
     build: {
       target: 'esnext',
-      outDir: 'build',
+      outDir: 'dist',
     },
     server: {
       port: 3000,
       open: true,
     },
-  }));
+  });
