@@ -38,7 +38,6 @@ function BackgroundLayer({ mouseX, mouseY }: ParallaxProps) {
       style={{
         transform: `translate(${transformX}px, ${transformY}px) scale(1.1)`,
         transformOrigin: 'center center',
-        background: 'linear-gradient(135deg, #e0e5ec 0%, #ffffff 100%)',
       }}
     />
   );
@@ -88,6 +87,7 @@ function PetProfileCard({ mouseX, mouseY }: ParallaxProps) {
             background: '#e0e5ec',
             boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
             padding: 'clamp(4px, 0.4vh, 8px)',
+            maxHeight: '94vh',
           }}
         >
           {/* Glassmorphism inner card */}
@@ -97,7 +97,7 @@ function PetProfileCard({ mouseX, mouseY }: ParallaxProps) {
               background: 'rgba(255, 255, 255, 0.7)',
               backdropFilter: 'blur(20px)',
               border: '2px solid rgba(255, 255, 255, 0.8)',
-              maxHeight: '94vh',
+              maxHeight: '92vh',
             }}
           >
             {/* Main pet photo */}
@@ -394,12 +394,13 @@ export default function PetProfileApp() {
       const centerX = width / 2;
       const centerY = height / 2;
 
-      const maxTilt = 22;
-      const xTilt = clamp(gamma / maxTilt, -1, 1);
-      const yTilt = clamp(beta / maxTilt, -1, 1);
+      const maxTiltX = 22;
+      const maxTiltY = 16;
+      const xTilt = clamp(gamma / maxTiltX, -1, 1);
+      const yTilt = clamp(beta / maxTiltY, -1, 1);
 
       const offsetX = xTilt * width * 0.35;
-      const offsetY = -yTilt * height * 0.35;
+      const offsetY = -yTilt * height * 0.5;
 
       setMousePosition({ x: centerX + offsetX, y: centerY + offsetY });
     };
