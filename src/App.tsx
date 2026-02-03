@@ -394,12 +394,12 @@ export default function PetProfileApp() {
       const centerX = width / 2;
       const centerY = height / 2;
 
-      const maxTilt = 30;
+      const maxTilt = 22;
       const xTilt = clamp(gamma / maxTilt, -1, 1);
       const yTilt = clamp(beta / maxTilt, -1, 1);
 
-      const offsetX = xTilt * width * 0.25;
-      const offsetY = -yTilt * height * 0.25;
+      const offsetX = xTilt * width * 0.35;
+      const offsetY = -yTilt * height * 0.35;
 
       setMousePosition({ x: centerX + offsetX, y: centerY + offsetY });
     };
@@ -448,12 +448,11 @@ export default function PetProfileApp() {
           <button
             type="button"
             onClick={handleEnableMotion}
-            className="px-4 py-2 rounded-full text-sm font-medium"
+            className="px-4 py-2 rounded-full text-sm font-medium text-gray-700"
             style={{
-              background: '#ffffff',
-              color: '#333333',
-              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-              border: '1px solid rgba(0, 0, 0, 0.08)',
+              background: '#e0e5ec',
+              boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.6)',
             }}
           >
             {motionPermissionDenied ? '모션 권한 필요' : '모션 허용'}
