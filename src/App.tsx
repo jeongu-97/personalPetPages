@@ -314,6 +314,7 @@ export default function PetProfileApp() {
   const [motionPermissionDenied, setMotionPermissionDenied] = useState(false);
   const [isMotionEnabled, setIsMotionEnabled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const motionBaselineRef = useRef<{ beta: number; gamma: number } | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -381,11 +382,19 @@ export default function PetProfileApp() {
 
   useEffect(() => {
     if (!isMobileInput || !isMotionEnabled) return;
+    motionBaselineRef.current = null;
 
     const handleOrientation = (event: DeviceOrientationEvent) => {
       const beta = event.beta;
       const gamma = event.gamma;
       if (beta === null || gamma === null) return;
+
+      if (!motionBaselineRef.current) {
+        motionBaselineRef.current = { beta, gamma };
+      }
+
+      const adjustedBeta = beta - motionBaselineRef.current.beta;
+      const adjustedGamma = gamma - motionBaselineRef.current.gamma;
 
       const container = containerRef.current;
       const rect = container?.getBoundingClientRect();
@@ -396,8 +405,8 @@ export default function PetProfileApp() {
 
       const maxTiltX = 22;
       const maxTiltY = 16;
-      const xTilt = clamp(gamma / maxTiltX, -1, 1);
-      const yTilt = clamp(beta / maxTiltY, -1, 1);
+      const xTilt = clamp(adjustedGamma / maxTiltX, -1, 1);
+      const yTilt = clamp(adjustedBeta / maxTiltY, -1, 1);
 
       const offsetX = xTilt * width * 0.35;
       const offsetY = -yTilt * height * 0.5;
