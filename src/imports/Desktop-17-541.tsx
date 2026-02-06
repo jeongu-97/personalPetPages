@@ -62,7 +62,7 @@ function Group2147221305() {
           viewBox="0 0 429 182"
         >
           <g id="Group 2147221305">
-            <g id="My Rock Garden">
+            <g id="Personal Pet Page">
               <path d={svgPaths.p2a364f80} fill="var(--fill-0, white)" />
               <path d={svgPaths.pc751f00} fill="var(--fill-0, white)" />
               <path d={svgPaths.p227b7e00} fill="var(--fill-0, white)" />
@@ -70,7 +70,7 @@ function Group2147221305() {
               <path d={svgPaths.p14dcd600} fill="var(--fill-0, white)" />
               <path d={svgPaths.p24480900} fill="var(--fill-0, white)" />
             </g>
-            <g id="My Rock Garden_2">
+            <g id="Personal Pet Page 2">
               <path d={svgPaths.p2cc10400} fill="var(--fill-0, white)" />
               <path d={svgPaths.p8e44600} fill="var(--fill-0, white)" />
               <path d={svgPaths.p18dfafc0} fill="var(--fill-0, white)" />

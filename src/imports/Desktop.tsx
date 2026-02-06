@@ -83,7 +83,7 @@ function TitleContainer() {
         viewBox="0 0 506 60"
       >
         <g id="Title container">
-          <g id="My Rock Garden">
+          <g id="Personal Pet Page">
             <path d={svgPaths.p1317b300} fill="var(--fill-0, white)" />
             <path d={svgPaths.p319c52c0} fill="var(--fill-0, white)" />
             <path d={svgPaths.p284dfa00} fill="var(--fill-0, white)" />
@@ -169,7 +169,7 @@ function Title() {
     >
       <div className="font-['Outfit:Regular',_sans-serif] font-normal h-[66px] leading-[0] relative shrink-0 text-[#ffffff] text-[24px] text-left tracking-[-0.24px] w-96">
         <p className="adjustLetterSpacing block leading-[1.4]">
-          A personal project, by Alex Gardener
+          Personal Pet Page
         </p>
       </div>
       <Container />

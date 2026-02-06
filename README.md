@@ -1,7 +1,7 @@
 
-  # Geo Garden
+  # PersonalPetPage
 
-  This is a code bundle for Geo Garden. The original project is available at https://www.figma.com/design/ZIkWGtHhXllq3FaPhCO6kX/Geo-Garden.
+  개인 펫 프로필 페이지를 위한 프론트엔드 프로젝트입니다.
 
   ## Running the code
 
