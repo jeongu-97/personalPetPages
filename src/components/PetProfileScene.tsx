@@ -40,7 +40,6 @@ function PetProfileCard({
     if (!cardRef.current) return { x: 0, y: 0 };
 
     const rect = cardRef.current.getBoundingClientRect();
-    const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
 
     const cardCenterX = rect.left + rect.width / 2;
@@ -116,10 +115,10 @@ function PetProfileCard({
 
                 <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
                   {[
-                    { icon: Calendar, label: '?섏씠', value: pet.age },
-                    { icon: Weight, label: '泥댁쨷', value: pet.weight },
-                    { icon: Ruler, label: '?깅퀎', value: pet.gender },
-                    { icon: MapPin, label: '?꾩튂', value: pet.location },
+                    { icon: Calendar, label: '나이', value: pet.age },
+                    { icon: Weight, label: '체중', value: pet.weight },
+                    { icon: Ruler, label: '성별', value: pet.gender },
+                    { icon: MapPin, label: '위치', value: pet.location },
                   ].map(({ icon: Icon, label, value }) => (
                     <div
                       key={label}
@@ -163,7 +162,7 @@ function PetProfileCard({
                     />
                     <div className="min-w-0">
                       <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        ?깃꺽
+                        성격
                       </div>
                       <p className="leading-relaxed" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
                         {pet.personality}
@@ -189,7 +188,7 @@ function PetProfileCard({
                     />
                     <div className="min-w-0">
                       <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        嫄닿컯 ?뺣낫
+                        건강 정보
                       </div>
                       <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.healthNotes}</p>
                     </div>
@@ -198,8 +197,8 @@ function PetProfileCard({
 
                 <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.2vh, 12px)' }}>
                   {[
-                    { label: '醫뗭븘?섎뒗 ?뚯떇', value: pet.favoriteFood },
-                    { label: '醫뗭븘?섎뒗 ?λ궃媛?', value: pet.favoriteToy },
+                    { label: '좋아하는 간식', value: pet.favoriteFood },
+                    { label: '좋아하는 장난감', value: pet.favoriteToy },
                   ].map(({ label, value }) => (
                     <div
                       key={label}
