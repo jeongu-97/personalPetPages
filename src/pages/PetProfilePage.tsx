@@ -65,7 +65,7 @@ export default function PetProfilePage() {
         )}
         {state === 'not_found' && (
           <>
-            <p className="text-gray-600 mb-4">해당 슬러그를 찾을 수 없어요.</p>
+            <p className="text-gray-600 mb-4">유효한 링크가 아니에요.</p>
             <Link to="/" className="text-gray-700 font-medium">
               홈으로 이동
             </Link>
