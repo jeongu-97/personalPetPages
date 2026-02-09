@@ -3,6 +3,7 @@ import { PetProfileData } from '../types/pet';
 export type PetRecord = {
   id: string;
   slug: string;
+  share_token?: string | null;
   name: string;
   breed: string;
   age: string;
@@ -12,7 +13,7 @@ export type PetRecord = {
   favorite_food: string;
   favorite_toy: string;
   personality: string;
-  health_notes: string;
+  owner_contact?: string | null;
   main_photo_url: string;
   updated_at?: string;
 };
@@ -24,6 +25,7 @@ export type PetRecordInput = Omit<PetRecord, 'id' | 'updated_at'> & {
 export const toPetProfile = (record: PetRecord): PetProfileData => ({
   id: record.id,
   slug: record.slug,
+  shareToken: record.share_token ?? '',
   name: record.name,
   breed: record.breed,
   age: record.age,
@@ -33,13 +35,14 @@ export const toPetProfile = (record: PetRecord): PetProfileData => ({
   favoriteFood: record.favorite_food,
   favoriteToy: record.favorite_toy,
   personality: record.personality,
-  healthNotes: record.health_notes,
+  ownerContact: record.owner_contact ?? '',
   mainPhoto: record.main_photo_url,
 });
 
 export const toPetRecord = (pet: PetProfileData): PetRecordInput => ({
   id: pet.id,
   slug: pet.slug,
+  share_token: pet.shareToken,
   name: pet.name,
   breed: pet.breed,
   age: pet.age,
@@ -49,6 +52,6 @@ export const toPetRecord = (pet: PetProfileData): PetRecordInput => ({
   favorite_food: pet.favoriteFood,
   favorite_toy: pet.favoriteToy,
   personality: pet.personality,
-  health_notes: pet.healthNotes,
+  owner_contact: pet.ownerContact,
   main_photo_url: pet.mainPhoto,
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Heart, Activity, Calendar, Weight, Ruler, MapPin } from 'lucide-react';
+import { Heart, Calendar, Weight, Ruler, MapPin, Phone } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { PetProfileData } from '../types/pet';
 
@@ -9,6 +9,11 @@ interface ParallaxProps {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
+const formatWithUnit = (value: string, unit: string) => {
+  const numeric = normalizeNumeric(value);
+  return numeric ? `${numeric}${unit}` : '';
+};
 
 function BackgroundLayer({ mouseX, mouseY }: ParallaxProps) {
   const windowCenterX = typeof window !== 'undefined' ? window.innerWidth / 2 : 300;
@@ -35,6 +40,23 @@ function PetProfileCard({
   pet,
 }: ParallaxProps & { pet: PetProfileData }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const isFemale = pet.gender === '암컷';
+  const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
+  const shadows = isFemale
+    ? {
+        outer: '20px 20px 40px #d3b3c2, -20px -20px 40px #fff6fa',
+        inset: 'inset 8px 8px 16px #dbc1ce, inset -8px -8px 16px #fff8fb',
+        small: '12px 12px 24px #dbc1ce, -12px -12px 24px #fff8fb',
+        button: '8px 8px 16px #dbc1ce, -8px -8px 16px #fff8fb',
+        glass: '0 8px 32px rgba(176, 114, 140, 0.12)',
+      }
+    : {
+        outer: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
+        inset: 'inset 8px 8px 16px #b8bec5, inset -8px -8px 16px #ffffff',
+        small: '12px 12px 24px #b8bec5, -12px -12px 24px #ffffff',
+        button: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+        glass: '0 8px 32px rgba(0, 0, 0, 0.1)',
+      };
 
   const calculateRotation = () => {
     if (!cardRef.current) return { x: 0, y: 0 };
@@ -72,8 +94,8 @@ function PetProfileCard({
         <div
           className="rounded-3xl mx-3"
           style={{
-            background: '#e0e5ec',
-            boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
+            background: baseBg,
+            boxShadow: shadows.outer,
             padding: 'clamp(4px, 0.4vh, 8px)',
             maxHeight: '94vh',
           }}
@@ -115,8 +137,8 @@ function PetProfileCard({
 
                 <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
                   {[
-                    { icon: Calendar, label: '나이', value: pet.age },
-                    { icon: Weight, label: '체중', value: pet.weight },
+                    { icon: Calendar, label: '나이', value: formatWithUnit(pet.age, '살') },
+                    { icon: Weight, label: '체중', value: formatWithUnit(pet.weight, 'kg') },
                     { icon: Ruler, label: '성별', value: pet.gender },
                     { icon: MapPin, label: '위치', value: pet.location },
                   ].map(({ icon: Icon, label, value }) => (
@@ -124,8 +146,8 @@ function PetProfileCard({
                       key={label}
                       className="flex items-center gap-2 text-gray-700 rounded-2xl"
                       style={{
-                        background: '#e0e5ec',
-                        boxShadow: 'inset 8px 8px 16px #b8bec5, inset -8px -8px 16px #ffffff',
+                        background: baseBg,
+                        boxShadow: shadows.inset,
                         padding: 'clamp(8px, 1.2vh, 16px)',
                       }}
                     >
@@ -151,7 +173,7 @@ function PetProfileCard({
                     background: 'rgba(255, 255, 255, 0.5)',
                     backdropFilter: 'blur(10px)',
                     border: '2px solid rgba(255, 255, 255, 0.7)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                    boxShadow: shadows.glass,
                     padding: 'clamp(10px, 1.5vh, 20px)',
                   }}
                 >
@@ -177,20 +199,20 @@ function PetProfileCard({
                     background: 'rgba(255, 255, 255, 0.5)',
                     backdropFilter: 'blur(10px)',
                     border: '2px solid rgba(255, 255, 255, 0.7)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                    boxShadow: shadows.glass,
                     padding: 'clamp(10px, 1.5vh, 20px)',
                   }}
                 >
                   <div className="flex items-start gap-2 text-gray-700">
-                    <Activity
+                    <Phone
                       className="text-green-500 mt-0.5 shrink-0"
                       style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
                     />
                     <div className="min-w-0">
                       <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        건강 정보
+                        보호자 연락처
                       </div>
-                      <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.healthNotes}</p>
+                      <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.ownerContact}</p>
                     </div>
                   </div>
                 </div>
@@ -204,8 +226,8 @@ function PetProfileCard({
                       key={label}
                       className="rounded-2xl"
                       style={{
-                        background: '#e0e5ec',
-                        boxShadow: '12px 12px 24px #b8bec5, -12px -12px 24px #ffffff',
+                        background: baseBg,
+                        boxShadow: shadows.small,
                         padding: 'clamp(10px, 1.5vh, 16px)',
                       }}
                     >
@@ -251,6 +273,11 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
   const [isMotionEnabled, setIsMotionEnabled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const motionBaselineRef = useRef<{ beta: number; gamma: number } | null>(null);
+  const isFemale = petData.gender === '암컷';
+  const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
+  const buttonShadow = isFemale
+    ? '8px 8px 16px #dbc1ce, -8px -8px 16px #fff8fb'
+    : '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff';
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -387,8 +414,8 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
   return (
     <div
       ref={containerRef}
-      className="bg-[#e0e5ec] relative w-full h-screen overflow-hidden"
-      style={{ cursor: 'none' }}
+      className="relative w-full h-screen overflow-hidden"
+      style={{ cursor: 'none', background: baseBg }}
     >
       {isMobileInput && needsMotionPermission && (
         <div className="absolute top-4 right-4 z-50">
@@ -397,8 +424,8 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
             onClick={handleEnableMotion}
             className="px-4 py-2 rounded-full text-sm font-medium text-gray-700"
             style={{
-              background: '#e0e5ec',
-              boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+              background: baseBg,
+              boxShadow: buttonShadow,
               border: '1px solid rgba(255, 255, 255, 0.6)',
             }}
           >

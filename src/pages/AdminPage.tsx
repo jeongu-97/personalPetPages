@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
 import { supabase } from '../lib/supabaseClient';
 import { PetProfileData, emptyPetProfile } from '../types/pet';
 import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
@@ -12,6 +13,17 @@ const normalizeSlug = (value: string) =>
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
 
+const generateToken = () => {
+  if (typeof crypto === 'undefined' || !('getRandomValues' in crypto)) {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
+
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState('');
@@ -22,11 +34,18 @@ export default function AdminPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrStatus, setQrStatus] = useState<string | null>(null);
 
   const hasSupabaseEnv = useMemo(
     () => Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY),
     []
   );
+
+  const shareLink =
+    form.slug && form.shareToken && typeof window !== 'undefined'
+      ? `${window.location.origin}/${form.slug}?token=${form.shareToken}`
+      : '';
 
   useEffect(() => {
     if (!hasSupabaseEnv) return;
@@ -64,6 +83,32 @@ export default function AdminPage() {
     loadPets();
   }, [session]);
 
+  useEffect(() => {
+    if (!shareLink) {
+      setQrDataUrl(null);
+      setQrStatus(null);
+      return;
+    }
+
+    let isMounted = true;
+    setQrStatus('QR 생성 중...');
+    QRCode.toDataURL(shareLink, { width: 240, margin: 1 })
+      .then((url) => {
+        if (!isMounted) return;
+        setQrDataUrl(url);
+        setQrStatus(null);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setQrStatus('QR 생성에 실패했어요.');
+        setQrDataUrl(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [shareLink]);
+
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
     setAuthMessage(null);
@@ -79,7 +124,11 @@ export default function AdminPage() {
   };
 
   const handleSelectPet = (pet: PetProfileData) => {
-    setForm(pet);
+    setForm({
+      ...pet,
+      age: normalizeNumeric(pet.age),
+      weight: normalizeNumeric(pet.weight),
+    });
     setStatus(null);
   };
 
@@ -98,7 +147,14 @@ export default function AdminPage() {
     setIsSaving(true);
     setStatus(null);
 
-    const payload: PetProfileData = { ...form, slug: sanitizedSlug };
+    const payload: PetProfileData = {
+      ...form,
+      slug: sanitizedSlug,
+      age: normalizeNumeric(form.age),
+      weight: normalizeNumeric(form.weight),
+      shareToken: form.shareToken || generateToken(),
+    };
+
     const { data, error } = await supabase
       .from('pets')
       .upsert(toPetRecord(payload), { onConflict: 'slug' })
@@ -125,6 +181,19 @@ export default function AdminPage() {
     }
 
     setIsSaving(false);
+  };
+
+  const handleRegenerateToken = () => {
+    setForm((prev) => ({ ...prev, shareToken: generateToken() }));
+    setStatus('공유 링크를 새로 생성했어요. 저장을 눌러 적용하세요.');
+  };
+
+  const handleDownloadQr = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `${form.slug || 'pet'}-qr.png`;
+    link.click();
   };
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +359,45 @@ export default function AdminPage() {
           >
             <div className="grid gap-4">
               <div className="grid gap-2">
+                <label className="text-gray-600">공유 링크</label>
+                <input value={shareLink} readOnly className="rounded-2xl px-4 py-3 bg-gray-100" />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRegenerateToken}
+                    className="rounded-2xl px-3 py-2 text-sm font-medium text-gray-700"
+                    style={{
+                      background: '#e0e5ec',
+                      boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+                    }}
+                  >
+                    링크 재발급
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadQr}
+                    disabled={!qrDataUrl}
+                    className="rounded-2xl px-3 py-2 text-sm font-medium text-gray-700"
+                    style={{
+                      background: '#e0e5ec',
+                      boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+                      opacity: qrDataUrl ? 1 : 0.6,
+                    }}
+                  >
+                    QR 다운로드
+                  </button>
+                </div>
+                <p className="text-gray-500 text-sm">저장 버튼을 눌러야 링크가 적용됩니다.</p>
+                {qrStatus && <p className="text-gray-500 text-sm">{qrStatus}</p>}
+                {qrDataUrl && (
+                  <img
+                    src={qrDataUrl}
+                    alt="공유 링크 QR"
+                    className="rounded-2xl bg-white p-3 w-[240px]"
+                  />
+                )}
+              </div>
+              <div className="grid gap-2">
                 <label className="text-gray-600">슬러그</label>
                 <input
                   value={form.slug}
@@ -319,7 +427,12 @@ export default function AdminPage() {
                   <label className="text-gray-600">나이</label>
                   <input
                     value={form.age}
-                    onChange={(event) => setForm((prev) => ({ ...prev, age: event.target.value }))}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, age: normalizeNumeric(event.target.value) }))
+                    }
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="숫자만 입력"
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
@@ -327,7 +440,12 @@ export default function AdminPage() {
                   <label className="text-gray-600">몸무게</label>
                   <input
                     value={form.weight}
-                    onChange={(event) => setForm((prev) => ({ ...prev, weight: event.target.value }))}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, weight: normalizeNumeric(event.target.value) }))
+                    }
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="숫자만 입력"
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
@@ -335,11 +453,15 @@ export default function AdminPage() {
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <div className="grid gap-2">
                   <label className="text-gray-600">성별</label>
-                  <input
+                  <select
                     value={form.gender}
                     onChange={(event) => setForm((prev) => ({ ...prev, gender: event.target.value }))}
                     className="rounded-2xl px-4 py-3 bg-gray-100"
-                  />
+                  >
+                    <option value="">선택</option>
+                    <option value="암컷">암컷</option>
+                    <option value="수컷">수컷</option>
+                  </select>
                 </div>
                 <div className="grid gap-2">
                   <label className="text-gray-600">위치</label>
@@ -360,12 +482,11 @@ export default function AdminPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <label className="text-gray-600">건강 메모</label>
-                <textarea
-                  value={form.healthNotes}
-                  onChange={(event) => setForm((prev) => ({ ...prev, healthNotes: event.target.value }))}
+                <label className="text-gray-600">보호자 연락처</label>
+                <input
+                  value={form.ownerContact}
+                  onChange={(event) => setForm((prev) => ({ ...prev, ownerContact: event.target.value }))}
                   className="rounded-2xl px-4 py-3 bg-gray-100"
-                  rows={2}
                 />
               </div>
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>

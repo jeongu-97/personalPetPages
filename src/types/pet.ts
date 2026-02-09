@@ -1,6 +1,7 @@
 export interface PetProfileData {
   id?: string;
   slug: string;
+  shareToken: string;
   name: string;
   breed: string;
   age: string;
@@ -10,12 +11,13 @@ export interface PetProfileData {
   favoriteFood: string;
   favoriteToy: string;
   personality: string;
-  healthNotes: string;
+  ownerContact: string;
   mainPhoto: string;
 }
 
 export const emptyPetProfile: PetProfileData = {
   slug: '',
+  shareToken: '',
   name: '',
   breed: '',
   age: '',
@@ -25,6 +27,6 @@ export const emptyPetProfile: PetProfileData = {
   favoriteFood: '',
   favoriteToy: '',
   personality: '',
-  healthNotes: '',
+  ownerContact: '',
   mainPhoto: '',
 };
