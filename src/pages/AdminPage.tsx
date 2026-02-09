@@ -415,7 +415,7 @@ export default function AdminPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <label className="text-gray-600">견종</label>
+                <label className="text-gray-600">품종</label>
                 <input
                   value={form.breed}
                   onChange={(event) => setForm((prev) => ({ ...prev, breed: event.target.value }))}

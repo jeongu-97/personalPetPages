@@ -126,7 +126,7 @@ function PetProfileCard({
               }}
             >
               <div className="space-y-[clamp(8px,1.5vh,16px)]">
-                <div className="text-center">
+                <div className="flex items-end justify-center gap-3">
                   <h1 className="mb-1" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
                     {pet.name}
                   </h1>
