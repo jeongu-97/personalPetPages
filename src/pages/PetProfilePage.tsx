@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import PetProfileScene from '../components/PetProfileScene';
-import { supabase } from '../lib/supabaseClient';
 import { PetProfileData } from '../types/pet';
 import { PetRecord, toPetProfile } from '../lib/petData';
 
@@ -9,36 +8,40 @@ type LoadState = 'loading' | 'ready' | 'not_found' | 'error';
 
 export default function PetProfilePage() {
   const { slug } = useParams();
+  const location = useLocation();
   const [state, setState] = useState<LoadState>('loading');
   const [pet, setPet] = useState<PetProfileData | null>(null);
 
   useEffect(() => {
     if (!slug) return;
 
+    const search = new URLSearchParams(location.search);
+    const token = search.get('token');
+    if (!token) {
+      setState('not_found');
+      return;
+    }
+
     const load = async () => {
       setState('loading');
-      const { data, error } = await supabase
-        .from('pets')
-        .select('*')
-        .eq('slug', slug)
-        .maybeSingle<PetRecord>();
-
-      if (error) {
+      try {
+        const response = await fetch(
+          `/api/pet?slug=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}`
+        );
+        if (!response.ok) {
+          setState(response.status === 404 ? 'not_found' : 'error');
+          return;
+        }
+        const data = (await response.json()) as PetRecord;
+        setPet(toPetProfile(data));
+        setState('ready');
+      } catch {
         setState('error');
-        return;
       }
-
-      if (!data) {
-        setState('not_found');
-        return;
-      }
-
-      setPet(toPetProfile(data));
-      setState('ready');
     };
 
     load();
-  }, [slug]);
+  }, [slug, location.search]);
 
   if (state === 'ready' && pet) {
     return <PetProfileScene petData={pet} />;
