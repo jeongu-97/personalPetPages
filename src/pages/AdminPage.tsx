@@ -411,27 +411,35 @@ export default function AdminPage() {
       </button>
 
       <div className="flex flex-col gap-2">
-        {pets.map((pet) => (
-          <div
-            key={pet.slug}
-            className="rounded-2xl px-3 py-2"
-            style={{
-              background: '#e0e5ec',
-              boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
-              overflow: 'hidden',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => handleSelectPet(pet)}
-              className="text-center"
-              style={{ minWidth: 0, width: '100%' }}
+        {pets.map((pet) => {
+          const isSelected = (form.id && pet.id === form.id) || (savedSlug && pet.slug === savedSlug);
+          return (
+            <div
+              key={pet.slug}
+              className="rounded-2xl px-3 py-2"
+              style={{
+                background: isSelected ? '#dbe7ff' : '#e0e5ec',
+                boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+                overflow: 'hidden',
+              }}
             >
-              <div className="font-medium truncate">{pet.name || pet.slug}</div>
-              <div className="text-gray-500 text-sm truncate">/{pet.slug}</div>
-            </button>
-          </div>
-        ))}
+              <button
+                type="button"
+                onClick={() => handleSelectPet(pet)}
+                className="text-center"
+                style={{ minWidth: 0, width: '100%' }}
+                aria-pressed={isSelected}
+              >
+                <div className={`font-medium truncate ${isSelected ? 'text-gray-800' : ''}`}>
+                  {pet.name || pet.slug}
+                </div>
+                <div className={`${isSelected ? 'text-blue-600' : 'text-gray-500'} text-sm truncate`}>
+                  /{pet.slug}
+                </div>
+              </button>
+            </div>
+          );
+        })}
       </div>
     </>
   );

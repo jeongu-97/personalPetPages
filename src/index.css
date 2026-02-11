@@ -878,3 +878,41 @@ html {
   syntax: "*";
   inherits: false
 }
+
+@keyframes glossySweep {
+  0% {
+    transform: translateX(-180%) skewX(-22deg);
+  }
+  100% {
+    transform: translateX(460%) skewX(-22deg);
+  }
+}
+
+.glossy-cta {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.glossy-cta::after {
+  content: "";
+  position: absolute;
+  top: -65%;
+  bottom: -65%;
+  left: -40%;
+  width: 34%;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.42) 48%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+  animation: glossySweep 2.8s linear infinite;
+}
+
+.glossy-cta > span {
+  position: relative;
+  z-index: 1;
+}
