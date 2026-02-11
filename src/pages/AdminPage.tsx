@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 import { supabase } from '../lib/supabaseClient';
+import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
 import { PetProfileData, emptyPetProfile } from '../types/pet';
 import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
 
@@ -61,6 +62,40 @@ export default function AdminPage() {
 
   const statusClass =
     status && /주소|실패|못했|필요|로그인/.test(status) ? 'text-red-500' : 'text-gray-600';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const raw = window.localStorage.getItem(PROFILE_SURVEY_DRAFT_KEY);
+    if (!raw) return;
+
+    try {
+      const draft = JSON.parse(raw) as Partial<PetProfileData>;
+      if (!draft || typeof draft !== 'object') {
+        window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
+        return;
+      }
+
+      const draftAge = typeof draft.age === 'string' ? draft.age : '';
+      const draftWeight = typeof draft.weight === 'string' ? draft.weight : '';
+      const isMonths = /개월|월/.test(draftAge);
+
+      setForm({
+        ...emptyPetProfile,
+        ...draft,
+        age: normalizeNumeric(draftAge),
+        weight: normalizeDecimal(draftWeight),
+      });
+      setSavedSlug('');
+      setSavedShareToken('');
+      setAgeUnit(isMonths ? 'months' : 'years');
+      setStatus('설문지에서 작성한 내용이 불러와졌어요. 저장 버튼을 눌러 완료해 주세요.');
+    } catch {
+      // Ignore malformed draft payload.
+    } finally {
+      window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     if (!hasSupabaseEnv) return;

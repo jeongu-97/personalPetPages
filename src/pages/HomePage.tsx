@@ -163,7 +163,7 @@ export default function HomePage() {
 
         <section style={{ marginTop: '18px' }}>
           <Link
-            to="/admin"
+            to="/start"
             className="glossy-cta"
             style={{
               display: 'inline-flex',
