@@ -10,9 +10,23 @@ interface ParallaxProps {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
-const formatWithUnit = (value: string, unit: string) => {
+const normalizeDecimal = (value: string) => {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const [integer, ...rest] = cleaned.split('.');
+  if (!rest.length) return integer;
+  const decimals = rest.join('');
+  return `${integer}.${decimals}`;
+};
+const formatAge = (value: string) => {
   const numeric = normalizeNumeric(value);
-  return numeric ? `${numeric}${unit}` : '';
+  if (!numeric) return '';
+  if (/개월|월/.test(value)) return `${numeric}개월`;
+  if (/살|년/.test(value)) return `${numeric}살`;
+  return `${numeric}살`;
+};
+const formatWeight = (value: string) => {
+  const numeric = normalizeDecimal(value);
+  return numeric ? `${numeric}kg` : '';
 };
 
 function BackgroundLayer({ mouseX, mouseY }: ParallaxProps) {
@@ -137,8 +151,8 @@ function PetProfileCard({
 
                 <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
                   {[
-                    { icon: Calendar, label: '나이', value: formatWithUnit(pet.age, '살') },
-                    { icon: Weight, label: '체중', value: formatWithUnit(pet.weight, 'kg') },
+                    { icon: Calendar, label: '나이', value: formatAge(pet.age) },
+                    { icon: Weight, label: '체중', value: formatWeight(pet.weight) },
                     { icon: Ruler, label: '성별', value: pet.gender },
                     { icon: MapPin, label: '위치', value: pet.location },
                   ].map(({ icon: Icon, label, value }) => (
