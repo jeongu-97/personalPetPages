@@ -24,6 +24,14 @@ const generateToken = () => {
 
 const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
 
+const normalizeDecimal = (value: string) => {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const [integer, ...rest] = cleaned.split('.');
+  if (!rest.length) return integer;
+  const decimals = rest.join('');
+  return `${integer}.${decimals}`;
+};
+
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState('');
@@ -36,6 +44,10 @@ export default function AdminPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrStatus, setQrStatus] = useState<string | null>(null);
+  const [savedSlug, setSavedSlug] = useState('');
+  const [savedShareToken, setSavedShareToken] = useState('');
+  const [ageUnit, setAgeUnit] = useState<'years' | 'months'>('years');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const hasSupabaseEnv = useMemo(
     () => Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY),
@@ -43,9 +55,12 @@ export default function AdminPage() {
   );
 
   const shareLink =
-    form.slug && form.shareToken && typeof window !== 'undefined'
-      ? `${window.location.origin}/${form.slug}?token=${form.shareToken}`
+    savedSlug && savedShareToken && typeof window !== 'undefined'
+      ? `${window.location.origin}/${savedSlug}?token=${savedShareToken}`
       : '';
+
+  const statusClass =
+    status && /주소|실패|못했|필요|로그인/.test(status) ? 'text-red-500' : 'text-gray-600';
 
   useEffect(() => {
     if (!hasSupabaseEnv) return;
@@ -124,17 +139,24 @@ export default function AdminPage() {
   };
 
   const handleSelectPet = (pet: PetProfileData) => {
+    const isMonths = /개월|월/.test(pet.age);
     setForm({
       ...pet,
       age: normalizeNumeric(pet.age),
-      weight: normalizeNumeric(pet.weight),
+      weight: normalizeDecimal(pet.weight),
     });
     setStatus(null);
+    setSavedSlug(pet.slug);
+    setSavedShareToken(pet.shareToken);
+    setAgeUnit(isMonths ? 'months' : 'years');
   };
 
   const handleNewPet = () => {
     setForm(emptyPetProfile);
     setStatus(null);
+    setSavedSlug('');
+    setSavedShareToken('');
+    setAgeUnit('years');
   };
 
   const handleReset = () => {
@@ -142,23 +164,83 @@ export default function AdminPage() {
     setStatus(null);
     setQrStatus(null);
     setQrDataUrl(null);
+    setSavedSlug('');
+    setSavedShareToken('');
+    setAgeUnit('years');
+  };
+
+  const handleDeleteCurrent = async () => {
+    const targetId = form.id;
+    const targetSlug = savedSlug || normalizeSlug(form.slug);
+    if (!targetId && !targetSlug) {
+      setStatus('삭제할 프로필을 먼저 선택해 주세요.');
+      return;
+    }
+
+    const petLabel = form.name || targetSlug;
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`'${petLabel}' 프로필을 삭제할까요?`);
+      if (!confirmed) return;
+    }
+
+    setIsDeleting(true);
+    setStatus(null);
+
+    const { error } = await (targetId
+      ? supabase.from('pets').delete().eq('id', targetId)
+      : supabase.from('pets').delete().eq('slug', targetSlug));
+
+    if (error) {
+      setStatus('삭제에 실패했어요.');
+      setIsDeleting(false);
+      return;
+    }
+
+    setPets((prev) => prev.filter((item) => (targetId ? item.id !== targetId : item.slug !== targetSlug)));
+    setForm(emptyPetProfile);
+    setSavedSlug('');
+    setSavedShareToken('');
+    setAgeUnit('years');
+    setQrDataUrl(null);
+    setQrStatus(null);
+
+    setStatus('삭제 완료');
+    setIsDeleting(false);
   };
 
   const handleSave = async () => {
     const sanitizedSlug = normalizeSlug(form.slug);
+    const isAddressChangedOnExisting = Boolean(form.id && savedSlug && sanitizedSlug !== savedSlug);
     if (!sanitizedSlug) {
-      setStatus('슬러그를 입력해 주세요.');
+      setStatus('프로필 주소를 입력해 주세요.');
+      return;
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from('pets')
+      .select('id')
+      .eq('slug', sanitizedSlug)
+      .maybeSingle();
+
+    if (existingError) {
+      setStatus('프로필 주소 확인에 실패했어요.');
+      return;
+    }
+
+    if (existing?.id && existing.id !== form.id) {
+      setStatus('이미 사용 중인 프로필 주소입니다.');
       return;
     }
 
     setIsSaving(true);
     setStatus(null);
 
+    const normalizedAge = normalizeNumeric(form.age);
     const payload: PetProfileData = {
       ...form,
       slug: sanitizedSlug,
-      age: normalizeNumeric(form.age),
-      weight: normalizeNumeric(form.weight),
+      age: normalizedAge ? `${normalizedAge}${ageUnit === 'months' ? '개월' : '살'}` : '',
+      weight: normalizeDecimal(form.weight),
       shareToken: form.shareToken || generateToken(),
     };
 
@@ -169,7 +251,11 @@ export default function AdminPage() {
       .maybeSingle<PetRecord>();
 
     if (error) {
-      setStatus('저장에 실패했어요.');
+      if (isAddressChangedOnExisting) {
+        setStatus('프로필 주소는 저장 후 수정할 수 없어요. 기존 주소로 저장해 주세요.');
+      } else {
+        setStatus('저장에 실패했어요.');
+      }
       setIsSaving(false);
       return;
     }
@@ -177,6 +263,8 @@ export default function AdminPage() {
     if (data) {
       const next = toPetProfile(data);
       setForm(next);
+      setSavedSlug(next.slug);
+      setSavedShareToken(next.shareToken);
       setPets((prev) => {
         const exists = prev.find((item) => item.slug === next.slug);
         if (exists) {
@@ -185,6 +273,9 @@ export default function AdminPage() {
         return [next, ...prev];
       });
       setStatus('저장 완료');
+    } else {
+      setSavedSlug(payload.slug);
+      setSavedShareToken(payload.shareToken);
     }
 
     setIsSaving(false);
@@ -310,7 +401,7 @@ export default function AdminPage() {
       <button
         type="button"
         onClick={handleNewPet}
-        className="rounded-2xl px-5 py-3 text-base font-medium text-gray-700"
+        className="w-full inline-flex items-center justify-center rounded-2xl px-10 py-3 text-base font-medium text-gray-700 min-w-[200px]"
         style={{
           background: '#e7f0ff',
           boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
@@ -321,19 +412,25 @@ export default function AdminPage() {
 
       <div className="flex flex-col gap-2">
         {pets.map((pet) => (
-          <button
+          <div
             key={pet.slug}
-            type="button"
-            onClick={() => handleSelectPet(pet)}
-            className="rounded-2xl px-3 py-2 text-left"
+            className="rounded-2xl px-3 py-2"
             style={{
               background: '#e0e5ec',
               boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+              overflow: 'hidden',
             }}
           >
-            <div className="font-medium">{pet.name || pet.slug}</div>
-            <div className="text-gray-500 text-sm">/{pet.slug}</div>
-          </button>
+            <button
+              type="button"
+              onClick={() => handleSelectPet(pet)}
+              className="text-center"
+              style={{ minWidth: 0, width: '100%' }}
+            >
+              <div className="font-medium truncate">{pet.name || pet.slug}</div>
+              <div className="text-gray-500 text-sm truncate">/{pet.slug}</div>
+            </button>
+          </div>
         ))}
       </div>
     </>
@@ -349,7 +446,7 @@ export default function AdminPage() {
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-2xl px-5 py-3 text-base font-medium text-gray-700"
+            className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px]"
             style={{
               background: '#ffe6e6',
               boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
@@ -375,36 +472,53 @@ export default function AdminPage() {
                 padding: '32px',
               }}
             >
-              <div className="grid gap-4">
-                <div className="grid gap-2">
+              <div className="grid" style={{ rowGap: '20px' }}>
+                <div className="grid" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">공유 링크</label>
                   <input value={shareLink} readOnly className="rounded-2xl px-4 py-3 bg-gray-100" />
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleRegenerateToken}
-                      className="rounded-2xl px-4 py-3 text-base font-medium text-gray-700"
+                  <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRegenerateToken}
+                    disabled={!shareLink}
+                    className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px] w-full sm:w-auto"
                     style={{
                       background: '#fff1da',
                       boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+                      opacity: shareLink ? 1 : 0.6,
                     }}
                   >
                     링크 재발급
                   </button>
-                    <button
-                      type="button"
-                      onClick={handleDownloadQr}
-                      disabled={!qrDataUrl}
-                      className="rounded-2xl px-4 py-3 text-base font-medium text-gray-700"
+                  <button
+                    type="button"
+                    onClick={handleDownloadQr}
+                    disabled={!qrDataUrl}
+                    className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px] w-full sm:w-auto"
                     style={{
                       background: '#e9f6ff',
                       boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
                       opacity: qrDataUrl ? 1 : 0.6,
                     }}
                   >
-                      QR 다운로드
-                    </button>
-                  </div>
+                    QR 다운로드
+                  </button>
+                  <a
+                    href={shareLink || '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`inline-flex items-center justify-center text-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px] w-full sm:w-auto ${
+                      shareLink ? 'pointer-events-auto' : 'pointer-events-none opacity-60'
+                    }`}
+                    style={{
+                      background: '#f0fff4',
+                      boxShadow: '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff',
+                      color: '#374151',
+                    }}
+                  >
+                    링크 열기
+                  </a>
+                </div>
                   <p className="text-gray-500 text-sm">저장 버튼을 눌러야 링크가 적용됩니다.</p>
                   {qrStatus && <p className="text-gray-500 text-sm">{qrStatus}</p>}
                   {qrDataUrl && (
@@ -415,16 +529,16 @@ export default function AdminPage() {
                     />
                   )}
                 </div>
-                <div className="grid gap-2">
-                  <label className="text-gray-600">슬러그</label>
+                <div className="grid" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">프로필 주소</label>
                   <input
                     value={form.slug}
                     onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
-                    placeholder="예: bori"
+                    placeholder="영문과 숫자만 입력해 주세요.(예: bori)"
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
-                <div className="grid gap-2">
+                <div className="grid" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">이름</label>
                   <input
                     value={form.name}
@@ -432,7 +546,7 @@ export default function AdminPage() {
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
-                <div className="grid gap-2">
+                <div className="grid" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">품종</label>
                   <input
                     value={form.breed}
@@ -440,9 +554,10 @@ export default function AdminPage() {
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
-                <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                  <div className="grid gap-2">
-                    <label className="text-gray-600">나이</label>
+              <div className="grid gap-2 grid-cols-2">
+                <div className="grid min-w-0" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">나이</label>
+                  <div className="flex items-center gap-1 min-w-0">
                     <input
                       value={form.age}
                       onChange={(event) =>
@@ -451,46 +566,57 @@ export default function AdminPage() {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       placeholder="숫자만 입력"
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
+                      className="w-0 flex-1 min-w-0 rounded-2xl px-2 py-2.5 bg-gray-100 text-sm"
                     />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-gray-600">몸무게</label>
-                    <input
-                      value={form.weight}
+                    <select
+                      value={ageUnit}
                       onChange={(event) =>
-                        setForm((prev) => ({ ...prev, weight: normalizeNumeric(event.target.value) }))
+                        setAgeUnit(event.target.value === 'months' ? 'months' : 'years')
                       }
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      placeholder="숫자만 입력"
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
-                    />
+                      className="w-14 shrink-0 rounded-2xl px-1 py-2.5 bg-gray-100 text-xs"
+                    >
+                      <option value="years">살</option>
+                      <option value="months">개월</option>
+                    </select>
                   </div>
                 </div>
-                <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                  <div className="grid gap-2">
-                    <label className="text-gray-600">성별</label>
-                    <select
+                <div className="grid min-w-0" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">몸무게</label>
+                  <input
+                    value={form.weight}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, weight: normalizeDecimal(event.target.value) }))
+                    }
+                    inputMode="numeric"
+                    pattern="[0-9]*[.]?[0-9]*"
+                    placeholder="예: 4.2"
+                    className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2 grid-cols-2">
+                <div className="grid min-w-0" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">성별</label>
+                  <select
                       value={form.gender}
                       onChange={(event) => setForm((prev) => ({ ...prev, gender: event.target.value }))}
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
+                      className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
                     >
                       <option value="">선택</option>
                       <option value="암컷">암컷</option>
                       <option value="수컷">수컷</option>
                     </select>
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid min-w-0" style={{ rowGap: '4px' }}>
                     <label className="text-gray-600">위치</label>
                     <input
                       value={form.location}
                       onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
+                      className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
                     />
                   </div>
                 </div>
-                <div className="grid gap-2">
+                <div className="grid" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">성격</label>
                   <textarea
                     value={form.personality}
@@ -499,7 +625,7 @@ export default function AdminPage() {
                     rows={3}
                   />
                 </div>
-                <div className="grid gap-2">
+                <div className="grid" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">보호자 연락처</label>
                   <input
                     value={form.ownerContact}
@@ -507,53 +633,45 @@ export default function AdminPage() {
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
-                <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                  <div className="grid gap-2">
-                    <label className="text-gray-600">좋아하는 간식</label>
+              <div className="grid gap-2 grid-cols-2">
+                <div className="grid min-w-0" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">좋아하는 간식</label>
                     <input
                       value={form.favoriteFood}
                       onChange={(event) => setForm((prev) => ({ ...prev, favoriteFood: event.target.value }))}
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
+                      className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
                     />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-gray-600">좋아하는 장난감</label>
-                    <input
-                      value={form.favoriteToy}
-                      onChange={(event) => setForm((prev) => ({ ...prev, favoriteToy: event.target.value }))}
-                      className="rounded-2xl px-4 py-3 bg-gray-100"
-                    />
-                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <label className="text-gray-600">대표 사진 URL</label>
+                <div className="grid min-w-0" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">좋아하는 장난감</label>
                   <input
-                    value={form.mainPhoto}
-                    onChange={(event) => setForm((prev) => ({ ...prev, mainPhoto: event.target.value }))}
-                    className="rounded-2xl px-4 py-3 bg-gray-100"
+                    value={form.favoriteToy}
+                    onChange={(event) => setForm((prev) => ({ ...prev, favoriteToy: event.target.value }))}
+                    className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <label className="text-gray-600">사진 업로드</label>
+              </div>
+              <div className="grid" style={{ rowGap: '4px', marginBottom: '28px' }}>
+                  <div className="flex items-center gap-2">
+                    <label className="text-gray-600">사진 업로드</label>
+                    <span className="text-gray-500 text-sm">(권장: 5MB 이하)</span>
+                  </div>
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleFileChange}
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
-                  <p className="text-gray-500 text-sm">
-                    업로드 후 자동으로 URL이 채워집니다. 권장: 2~5MB 이하.
-                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mt-6">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="flex items-center gap-2 w-full md:w-auto">
                   <button
                     type="button"
                     onClick={handleSave}
                     disabled={isSaving}
-                    className="rounded-2xl px-5 py-3 text-base font-medium text-gray-700"
+                    className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px] w-full sm:w-auto"
                     style={{
                       background: '#e6f7ed',
                       boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
@@ -565,7 +683,7 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={handleReset}
-                    className="rounded-2xl px-5 py-3 text-base font-medium text-gray-700"
+                    className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px] w-full sm:w-auto"
                     style={{
                       background: '#f5f0ff',
                       boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
@@ -574,8 +692,25 @@ export default function AdminPage() {
                     초기화
                   </button>
                 </div>
-                {isUploading && <span className="text-gray-500 text-sm">업로드 중...</span>}
-                {status && <span className="text-gray-600 text-sm">{status}</span>}
+                <div className="flex flex-wrap items-center gap-3 text-sm md:ml-auto">
+                  {isUploading && <span className="text-gray-500">업로드 중...</span>}
+                  {status && <span className={statusClass}>{status}</span>}
+                </div>
+              </div>
+              <div className="flex justify-end" style={{ marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={handleDeleteCurrent}
+                  disabled={isDeleting || (!form.id && !savedSlug)}
+                  className="inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-red-700 min-w-[200px] w-full sm:w-auto"
+                  style={{
+                    background: '#ffe8e8',
+                    boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+                    opacity: isDeleting || (!form.id && !savedSlug) ? 0.6 : 1,
+                  }}
+                >
+                  {isDeleting ? '삭제 중...' : '선택 프로필 삭제'}
+                </button>
               </div>
             </div>
           </div>
