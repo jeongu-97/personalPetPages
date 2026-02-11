@@ -13,15 +13,15 @@ function PetProfileLoadingSkeleton() {
   return (
     <div className="relative w-full h-screen overflow-hidden" style={{ background: baseBg }}>
       <div className="flex items-center justify-center w-full h-full">
-        <div className="relative w-full max-w-md mx-auto z-20 h-full flex items-center" style={{ maxHeight: '96vh' }}>
-          <div className="w-full">
+        <div className="relative w-full max-w-md mx-auto z-20 h-full flex items-center" style={{ height: '96vh' }}>
+          <div className="w-full transition-transform duration-150 ease-out">
             <div
               className="rounded-3xl mx-3"
               style={{
                 background: baseBg,
                 boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
                 padding: 'clamp(4px, 0.4vh, 8px)',
-                maxHeight: '94vh',
+                height: '94vh',
               }}
             >
               <div
@@ -30,15 +30,17 @@ function PetProfileLoadingSkeleton() {
                   background: 'rgba(255, 255, 255, 0.7)',
                   backdropFilter: 'blur(20px)',
                   border: '2px solid rgba(255, 255, 255, 0.8)',
-                  maxHeight: '92vh',
+                  height: '92vh',
                 }}
               >
-                <Skeleton
-                  className="w-full shrink-0 rounded-none"
-                  style={{ height: 'clamp(200px, 32vh, 280px)', backgroundColor: 'rgba(224, 229, 236, 0.95)' }}
-                />
+                <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
+                  <Skeleton
+                    className="w-full h-full rounded-none"
+                    style={{ backgroundColor: 'rgba(224, 229, 236, 0.95)' }}
+                  />
+                </div>
                 <div
-                  className="flex-1 overflow-hidden"
+                  className="overflow-y-auto flex-1"
                   style={{
                     padding: 'clamp(12px, 2vh, 24px) clamp(16px, 2.5vw, 24px)',
                   }}
