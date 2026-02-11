@@ -185,17 +185,17 @@ export default function ProfileSurveyPage() {
     if (stepIndex === 3) return '생일이 언제인가요?';
     if (stepIndex === 4) return '성별을 알려주세요';
     if (stepIndex === 5) return '사진을 올려주세요';
-    if (stepIndex === 6) return `${petName}(가)는\n어떤 성격인가요?`;
-    if (stepIndex === 7) return `${petName}(가)가\n좋아하는 것은요?`;
+    if (stepIndex === 6) return `${petName}(이)는\n어떤 성격인가요?`;
+    if (stepIndex === 7) return `${petName}(이)가\n좋아하는 것은요?`;
     return '건강 정보를 알려주세요';
   })();
 
   const currentSubtitle = (() => {
     if (stepIndex === 0) return '우리 아이를 부르는 이름을 알려주세요';
-    if (stepIndex === 1) return `${petName}(가)는요?`;
+    if (stepIndex === 1) return `${petName}(이)는요?`;
     if (stepIndex === 2) return '정확하지 않아도 괜찮아요';
     if (stepIndex === 3) return '대략적인 날짜도 좋아요';
-    if (stepIndex === 4) return `${petName}(가)는?`;
+    if (stepIndex === 4) return `${petName}(이)는?`;
     if (stepIndex === 5) return '가장 마음에 드는 사진으로';
     if (stepIndex === 6) return '특징을 자유롭게 적어주세요';
     if (stepIndex === 7) return '간식, 장난감 등을 자유롭게 적어주세요';
