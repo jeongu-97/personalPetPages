@@ -122,6 +122,7 @@ const chooseCardStyle: CSSProperties = {
 export default function ProfileSurveyPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const birthDateInputRef = useRef<HTMLInputElement | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [form, setForm] = useState<SurveyForm>(initialSurveyForm);
   const [message, setMessage] = useState<string | null>(null);
@@ -277,6 +278,19 @@ export default function ProfileSurveyPage() {
     }));
   };
 
+  const openBirthDatePicker = () => {
+    const input = birthDateInputRef.current;
+    if (!input) return;
+
+    input.focus();
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+
+    input.click();
+  };
+
   const renderStepField = () => {
     if (stepIndex === 0) {
       return (
@@ -340,6 +354,7 @@ export default function ProfileSurveyPage() {
           }}
         >
           <input
+            ref={birthDateInputRef}
             type="date"
             value={form.birthDate}
             onChange={(event) => setForm((prev) => ({ ...prev, birthDate: event.target.value }))}
@@ -350,7 +365,22 @@ export default function ProfileSurveyPage() {
               color: '#374151',
             }}
           />
-          <CalendarDays size={18} color="#6b7280" />
+          <button
+            type="button"
+            onClick={openBirthDatePicker}
+            aria-label="생일 달력 열기"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              color: '#6b7280',
+            }}
+          >
+            <CalendarDays size={18} color="#6b7280" />
+          </button>
         </div>
       );
     }

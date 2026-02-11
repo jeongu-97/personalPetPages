@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, Share2, Sparkles } from 'lucide-react';
 
 const previewImage =
   'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=1200&q=80';
+const previewProfileUrl =
+  'https://personal-pet-pages.vercel.app/ida2?token=5df6c359f2cbf15babc67882eebc57f7';
 
 const featureCards = [
   {
@@ -26,11 +29,35 @@ const featureCards = [
 ];
 
 export default function HomePage() {
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const neumoBg = '#faf9f2';
   const neumoShadow = '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff';
   const neumoShadowSoft = '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff';
   const yellowShadow = '8px 8px 16px #d9c88f, -8px -8px 16px #fffdf3';
   const yellowShadowSoft = '6px 6px 12px #ddcc98, -6px -6px 12px #fffef5';
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.style.overflow = isPreviewModalOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isPreviewModalOpen]);
+
+  useEffect(() => {
+    if (!isPreviewModalOpen || typeof window === 'undefined') return;
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsPreviewModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isPreviewModalOpen]);
+
+  const togglePreviewModal = () => {
+    setIsPreviewModalOpen((prev) => !prev);
+  };
 
   return (
     <div className="min-h-screen" style={{ background: neumoBg }}>
@@ -84,7 +111,20 @@ export default function HomePage() {
               boxShadow: yellowShadow,
             }}
           >
-            <div style={{ position: 'relative', overflow: 'hidden', borderRadius: '16px' }}>
+            <button
+              type="button"
+              onClick={togglePreviewModal}
+              style={{
+                position: 'relative',
+                overflow: 'hidden',
+                borderRadius: '16px',
+                width: '100%',
+                display: 'block',
+                cursor: 'pointer',
+              }}
+              aria-expanded={isPreviewModalOpen}
+              aria-label="프로필 전체보기 열기 또는 닫기"
+            >
               <img
                 src={previewImage}
                 alt="프로필 미리보기"
@@ -110,9 +150,9 @@ export default function HomePage() {
                   color: '#4b5563',
                 }}
               >
-                탭하여 전체보기
+                {isPreviewModalOpen ? '탭하여 전체보기 닫기' : '탭하여 전체보기'}
               </p>
-            </div>
+            </button>
           </div>
         </section>
 
@@ -186,6 +226,106 @@ export default function HomePage() {
           </p>
         </section>
       </main>
+
+      {isPreviewModalOpen && (
+        <div
+          onClick={togglePreviewModal}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              togglePreviewModal();
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            background: 'rgba(17, 24, 39, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '12px',
+          }}
+          aria-label="모달 닫기"
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="프로필 전체보기 미리보기"
+            style={{
+              position: 'relative',
+              width: 'min(96vw, 980px)',
+              height: 'min(92vh, 860px)',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              background: '#f8fafc',
+              boxShadow: '0 22px 50px rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(255, 255, 255, 0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <button
+              type="button"
+              onClick={togglePreviewModal}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                zIndex: 1,
+                borderRadius: '999px',
+                padding: '8px 12px',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: '#374151',
+                background: 'rgba(255,255,255,0.92)',
+                boxShadow: '0 8px 20px rgba(15, 23, 42, 0.2)',
+              }}
+            >
+              닫기
+            </button>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <iframe
+                title="프로필 전체보기"
+                src={previewProfileUrl}
+                style={{ width: '100%', height: '100%', border: '0', display: 'block' }}
+                loading="lazy"
+              />
+            </div>
+            <div
+              style={{
+                padding: '10px 12px 12px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e5e7eb',
+              }}
+            >
+              <Link
+                to="/start"
+                onClick={() => setIsPreviewModalOpen(false)}
+                className="glossy-cta"
+                style={{
+                  display: 'inline-flex',
+                  width: '100%',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '14px',
+                  padding: '12px 16px',
+                  fontSize: '17px',
+                  fontWeight: 700,
+                  color: '#5f4124',
+                  background: 'linear-gradient(90deg, #f4d88f 0%, #edc17a 100%)',
+                  boxShadow: '6px 6px 12px #d8c190, -6px -6px 12px #fff8e8',
+                }}
+              >
+                <span>프로필 만들기 시작하기</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
