@@ -12,10 +12,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { buildDefaultFunFacts } from '../lib/funFacts';
-import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
-import { savePetOwnerClaim } from '../lib/petOwnerClaim';
+import { createLocalPetDraftId, saveLocalPetDraft } from '../lib/localPetDraft';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
-import { supabase } from '../lib/supabaseClient';
 import { emptyPetProfile, PetKind, PetProfileData } from '../types/pet';
 
 type PetGender = '' | '수컷' | '암컷';
@@ -30,7 +28,6 @@ type SurveyForm = {
   location: string;
   ownerContact: string;
   mainPhoto: string;
-  mainPhotoFile: File | null;
   mainPhotoFileName: string;
   personality: string;
   favoriteFood: string;
@@ -49,7 +46,6 @@ const initialSurveyForm: SurveyForm = {
   location: '',
   ownerContact: '',
   mainPhoto: '',
-  mainPhotoFile: null,
   mainPhotoFileName: '',
   personality: '',
   favoriteFood: '',
@@ -71,25 +67,19 @@ const normalizeSlug = (value: string) =>
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
 
-const generateToken = () => {
-  if (typeof crypto === 'undefined' || !('getRandomValues' in crypto)) {
-    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-};
-
-const randomSlugSuffix = () => Math.random().toString(36).slice(2, 6);
-
-const sha256Hex = async (value: string) => {
-  if (typeof crypto === 'undefined' || !('subtle' in crypto)) {
-    throw new Error('hash_unavailable');
-  }
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-};
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('file_read_failed'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('file_read_failed'));
+    reader.readAsDataURL(file);
+  });
 
 const normalizeDecimal = (value: string) => {
   const cleaned = value.replace(/[^0-9.]/g, '');
@@ -212,7 +202,6 @@ export default function ProfileSurveyPage() {
         location: readString(draft.location),
         ownerContact: readString(draft.ownerContact),
         mainPhoto: readString(draft.mainPhoto),
-        mainPhotoFile: null,
         mainPhotoFileName: '',
         personality: readString(draft.personality),
         favoriteFood: readString(draft.favoriteFood),
@@ -292,7 +281,7 @@ export default function ProfileSurveyPage() {
     return {
       ...emptyPetProfile,
       slug: generatedSlug || fallbackSlug,
-      shareToken: generateToken(),
+      shareToken: '',
       petKind: form.petKind,
       name: form.name.trim(),
       birthDate: form.birthDate,
@@ -310,86 +299,18 @@ export default function ProfileSurveyPage() {
     };
   };
 
-  const ensureSurveySession = async () => {
-    const { data } = await supabase.auth.getSession();
-    if (data.session) return data.session;
-
-    const { data: signInData, error } = await supabase.auth.signInAnonymously();
-    if (error) {
-      throw new Error(error.message || 'anonymous_sign_in_failed');
+  const saveDraftAndContinue = () => {
+    const payload = buildPayload();
+    const draftId = createLocalPetDraftId();
+    saveLocalPetDraft({
+      id: draftId,
+      pet: payload,
+      updatedAt: new Date().toISOString(),
+    });
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
     }
-    if (!signInData.session) {
-      throw new Error('anonymous_sign_in_failed');
-    }
-
-    return signInData.session;
-  };
-
-  const uploadSurveyPhotoIfNeeded = async (slug: string) => {
-    if (form.mainPhotoFile) {
-      const file = form.mainPhotoFile;
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const path = `${slug}/${fileId}.${ext}`;
-
-      const { error } = await supabase.storage.from('pet-photos').upload(path, file, {
-        upsert: true,
-      });
-      if (error) {
-        throw new Error(error.message || 'photo_upload_failed');
-      }
-
-      const { data } = supabase.storage.from('pet-photos').getPublicUrl(path);
-      return data.publicUrl;
-    }
-
-    if (form.mainPhoto.startsWith('blob:')) {
-      return '';
-    }
-
-    return form.mainPhoto;
-  };
-
-  const createProfileFromSurvey = async () => {
-    await ensureSurveySession();
-
-    const basePayload = buildPayload();
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const slug = attempt === 0 ? basePayload.slug : `${basePayload.slug}-${randomSlugSuffix()}`;
-      const uploadedPhotoUrl = await uploadSurveyPhotoIfNeeded(slug);
-      const ownerClaimToken = generateToken();
-      const ownerClaimHash = await sha256Hex(ownerClaimToken);
-      const payload: PetProfileData = {
-        ...basePayload,
-        slug,
-        shareToken: generateToken(),
-        mainPhoto: uploadedPhotoUrl,
-      };
-      const insertPayload = {
-        ...toPetRecord(payload),
-        owner_claim_hash: ownerClaimHash,
-      };
-
-      const { data, error } = await supabase
-        .from('pets')
-        .insert(insertPayload)
-        .select()
-        .maybeSingle<PetRecord>();
-
-      if (!error && data) {
-        return { profile: toPetProfile(data), ownerClaimToken };
-      }
-
-      if (error && error.code === '23505') {
-        continue;
-      }
-
-      throw new Error(error?.message || 'insert_failed');
-    }
-
-    throw new Error('slug_conflict');
+    navigate(`/draft/${encodeURIComponent(draftId)}`, { replace: true });
   };
 
   const handleNext = async () => {
@@ -406,32 +327,9 @@ export default function ProfileSurveyPage() {
     if (isLastStep) {
       setIsSubmitting(true);
       try {
-        const { profile: createdProfile, ownerClaimToken } = await createProfileFromSurvey();
-        savePetOwnerClaim({ slug: createdProfile.slug, token: ownerClaimToken });
-        if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
-        }
-        navigate(
-          `/${encodeURIComponent(createdProfile.slug)}?token=${encodeURIComponent(createdProfile.shareToken)}&created=1`,
-          { replace: true },
-        );
-        return;
-      } catch (error) {
-        console.error('[ProfileSurveyPage] submit failed', error);
-        if (typeof window !== 'undefined') {
-          try {
-            window.localStorage.setItem(PROFILE_SURVEY_DRAFT_KEY, JSON.stringify(buildPayload()));
-          } catch (draftError) {
-            console.error('[ProfileSurveyPage] failed to save survey draft', draftError);
-          }
-        }
-        if (error instanceof Error && error.message === 'slug_conflict') {
-          setMessage('프로필 주소 생성에 실패했어요. 이름을 조금 다르게 입력하고 다시 시도해 주세요.');
-        } else if (error instanceof Error) {
-          setMessage(error.message);
-        } else {
-          setMessage('등록에 실패했어요.');
-        }
+        saveDraftAndContinue();
+      } catch {
+        setMessage('임시 저장에 실패했어요. 다시 시도해 주세요.');
       } finally {
         setIsSubmitting(false);
       }
@@ -441,17 +339,21 @@ export default function ProfileSurveyPage() {
     setStepIndex((prev) => prev + 1);
   };
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const objectUrl = URL.createObjectURL(file);
-    setForm((prev) => ({
-      ...prev,
-      mainPhoto: objectUrl,
-      mainPhotoFile: file,
-      mainPhotoFileName: file.name,
-    }));
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setForm((prev) => ({
+        ...prev,
+        mainPhoto: dataUrl,
+        mainPhotoFileName: file.name,
+      }));
+      setMessage(null);
+    } catch {
+      setMessage('사진을 읽지 못했어요. 다시 선택해 주세요.');
+    }
   };
 
   const openBirthDatePicker = () => {

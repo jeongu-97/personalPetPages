@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
 import AdminPage from './pages/AdminPage';
+import DraftProfilePage from './pages/DraftProfilePage';
 import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
 import PetProfilePage from './pages/PetProfilePage';
@@ -11,6 +12,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/start" element={<ProfileSurveyPage />} />
+      <Route path="/draft/:draftId" element={<DraftProfilePage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/edit/:slug" element={<UserEditPage />} />
       <Route path="/:slug" element={<PetProfilePage />} />

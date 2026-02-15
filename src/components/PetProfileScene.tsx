@@ -17,6 +17,7 @@ type PetProfileSceneProps = {
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
   onEditRequest?: () => void;
+  showEditMenu?: boolean;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -183,6 +184,7 @@ function PetProfileCard({
   onPetChange,
   editLink,
   onEditRequest,
+  showEditMenu = true,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -193,6 +195,7 @@ function PetProfileCard({
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
   onEditRequest?: () => void;
+  showEditMenu?: boolean;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -710,7 +713,7 @@ function PetProfileCard({
     >
       {isSaving ? '저장중...' : '저장'}
     </button>
-    ) : (
+    ) : showEditMenu ? (
     <div
       data-edit-menu-root="true"
       style={{
@@ -789,7 +792,7 @@ function PetProfileCard({
         </div>
       )}
     </div>
-    )
+    ) : null
   );
 
   const cloneNodeWithComputedStyles = (sourceRoot: HTMLElement) => {
@@ -1805,6 +1808,7 @@ export default function PetProfileScene({
   onPetChange,
   editLink,
   onEditRequest,
+  showEditMenu = true,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -1986,6 +1990,7 @@ export default function PetProfileScene({
           onPetChange={onPetChange}
           editLink={editLink}
           onEditRequest={onEditRequest}
+          showEditMenu={showEditMenu}
           onSaveRequest={onSaveRequest}
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}
