@@ -573,78 +573,91 @@ function PetProfileCard({
         style={{
           transform: `perspective(1000px) translateZ(30px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
           transformStyle: 'preserve-3d',
+          perspective: '1200px',
+          WebkitPerspective: '1200px',
         }}
       >
         <div
-          className="rounded-3xl mx-3"
+          className="relative rounded-3xl mx-3"
+          role="button"
+          tabIndex={0}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onWheel={handleWheel}
+          onClick={handleCardClick}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              handleToggleFlip();
+            }
+          }}
           style={{
             position: 'relative',
-            background: baseBg,
-            boxShadow: shadows.outer,
-            padding: 'clamp(4px, 0.4vh, 8px)',
             maxHeight: '94vh',
+            height: 'min(92vh, 820px)',
+            transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+            transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+            transformOrigin: 'center center',
             transformStyle: 'preserve-3d',
             WebkitTransformStyle: 'preserve-3d',
+            willChange: 'transform',
+            touchAction: 'pan-y',
+            userSelect: 'none',
+            cursor: 'pointer',
           }}
         >
           <div
-            className="rounded-3xl overflow-hidden relative"
-            role="button"
-            tabIndex={0}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            onWheel={handleWheel}
-            onClick={handleCardClick}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                handleToggleFlip();
-              }
-            }}
+            className="absolute inset-0 rounded-3xl"
             style={{
-              background: 'rgba(255, 255, 255, 0.7)',
+              background: baseBg,
+              boxShadow: shadows.outer,
               border: '2px solid rgba(255, 255, 255, 0.8)',
-              maxHeight: '92vh',
-              height: 'min(92vh, 820px)',
-              position: 'relative',
-              transformStyle: 'preserve-3d',
-              WebkitTransformStyle: 'preserve-3d',
-              perspective: '1200px',
-              touchAction: 'pan-y',
-              userSelect: 'none',
-              cursor: 'pointer',
+              padding: 'clamp(4px, 0.4vh, 8px)',
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+              transform: 'rotateY(0deg)',
             }}
           >
             <div
-              className="relative h-full w-full"
+              className="rounded-3xl overflow-hidden relative h-full flex flex-col"
               style={{
-                transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-                transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
-                transformStyle: 'preserve-3d',
-                WebkitTransformStyle: 'preserve-3d',
-                willChange: 'transform',
+                background: 'rgba(255, 255, 255, 0.7)',
               }}
             >
               <div
                 className="absolute inset-0 flex flex-col"
                 style={{
                   background: 'rgba(255, 255, 255, 0.78)',
-                  transform: 'translateZ(1px)',
-                  backfaceVisibility: 'hidden',
-                  WebkitBackfaceVisibility: 'hidden',
                 }}
               >
                 {frontCardContent}
               </div>
+            </div>
+          </div>
+          <div
+            className="absolute inset-0 rounded-3xl"
+            style={{
+              background: baseBg,
+              boxShadow: shadows.outer,
+              border: '2px solid rgba(255, 255, 255, 0.8)',
+              padding: 'clamp(4px, 0.4vh, 8px)',
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+              transform: 'rotateY(180deg)',
+            }}
+          >
+            <div
+              className="rounded-3xl overflow-hidden relative h-full flex flex-col"
+              style={{
+                background: 'rgba(255, 255, 255, 0.7)',
+              }}
+            >
               <div
                 className="absolute inset-0 flex flex-col"
                 style={{
                   background: 'rgba(255, 255, 255, 0.78)',
-                  transform: 'rotateY(180deg) translateZ(1px)',
-                  backfaceVisibility: 'hidden',
-                  WebkitBackfaceVisibility: 'hidden',
                 }}
               >
                 {backCardContent}
