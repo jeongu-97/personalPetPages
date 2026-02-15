@@ -1,3 +1,8 @@
+export interface PetComment {
+  author: string;
+  text: string;
+}
+
 export interface PetProfileData {
   id?: string;
   slug: string;
@@ -11,6 +16,8 @@ export interface PetProfileData {
   location: string;
   favoriteFood: string;
   favoriteToy: string;
+  funFacts: string[];
+  comments: PetComment[];
   personality: string;
   ownerContact: string;
   mainPhoto: string;
@@ -28,6 +35,8 @@ export const emptyPetProfile: PetProfileData = {
   location: '',
   favoriteFood: '',
   favoriteToy: '',
+  funFacts: [],
+  comments: [],
   personality: '',
   ownerContact: '',
   mainPhoto: '',

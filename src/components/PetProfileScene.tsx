@@ -652,23 +652,28 @@ function PetProfileCard({
               Fun Facts
             </p>
           </div>
-          {[
-            {
-              color: '#8b5cf6',
-              text: `${pet.name || '우리 아이'}(가)를 처음 만난다면 ${(pet.favoriteToy || '애착 장난감').trim()}(을)를 준비해보세요!`,
-            },
-            {
-              color: '#ec4899',
-              text: (pet.personality.split('\n').find((line) => line.trim().length > 0) || '애교가 많아요').trim(),
-            },
-            {
-              color: '#3b82f6',
-              text:
-                formatBirthDate(pet.birthDate) === '생일 미입력'
-                  ? '생일 정보는 아직 입력되지 않았어요.'
-                  : `생일을 축하해주고 싶다면 ${formatBirthDate(pet.birthDate)}을 기억해주세요!`,
-            },
-          ].map(({ color, text }, index) => (
+          {(pet.funFacts.length
+            ? pet.funFacts.map((text, index) => ({
+                color: ['#8b5cf6', '#ec4899', '#3b82f6'][index % 3],
+                text,
+              }))
+            : [
+                {
+                  color: '#8b5cf6',
+                  text: `${pet.name || '우리 아이'}(가)를 처음 만난다면 ${(pet.favoriteToy || '애착 장난감').trim()}(을)를 준비해보세요!`,
+                },
+                {
+                  color: '#ec4899',
+                  text: (pet.personality.split('\n').find((line) => line.trim().length > 0) || '애교가 많아요').trim(),
+                },
+                {
+                  color: '#3b82f6',
+                  text:
+                    formatBirthDate(pet.birthDate) === '생일 미입력'
+                      ? '생일 정보는 아직 입력되지 않았어요.'
+                      : `생일을 축하해주고 싶다면 ${formatBirthDate(pet.birthDate)}을 기억해주세요!`,
+                },
+              ]).map(({ color, text }, index) => (
             <div key={`fact-row-${index}`} className="flex items-start gap-2 leading-relaxed">
               <span className="shrink-0 mt-[0.15em]" style={{ color }}>
                 •
@@ -701,9 +706,15 @@ function PetProfileCard({
           </div>
 
           {[
-            `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
-            `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
-            `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
+            ...(pet.comments.length
+              ? pet.comments.map((comment) =>
+                  comment.author ? `${comment.author}: ${comment.text}` : comment.text
+                )
+              : [
+                  `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
+                  `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
+                  `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
+                ]),
           ].map((text, index) => (
             <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
               <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>

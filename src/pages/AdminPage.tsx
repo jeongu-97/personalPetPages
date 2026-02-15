@@ -3,7 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 import { supabase } from '../lib/supabaseClient';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
-import { PetProfileData, emptyPetProfile } from '../types/pet';
+import { PetComment, PetProfileData, emptyPetProfile } from '../types/pet';
 import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
 
 const normalizeSlug = (value: string) =>
@@ -32,6 +32,55 @@ const normalizeDecimal = (value: string) => {
   const decimals = rest.join('');
   return `${integer}.${decimals}`;
 };
+
+const normalizeStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0);
+};
+
+const normalizeComments = (value: unknown): PetComment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const author = typeof (item as { author?: unknown }).author === 'string'
+        ? (item as { author: string }).author.trim()
+        : '';
+      const text = typeof (item as { text?: unknown }).text === 'string'
+        ? (item as { text: string }).text.trim()
+        : '';
+      if (!text) return null;
+      return { author, text };
+    })
+    .filter((item): item is PetComment => Boolean(item));
+};
+
+const parseFunFactsText = (value: string): string[] =>
+  value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+const commentsToText = (comments: PetComment[]): string =>
+  comments.map((comment) => (comment.author ? `${comment.author}: ${comment.text}` : comment.text)).join('\n');
+
+const parseCommentsText = (value: string): PetComment[] =>
+  value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const separatorIndex = line.indexOf(':');
+      if (separatorIndex <= 0) {
+        return { author: '', text: line };
+      }
+      const author = line.slice(0, separatorIndex).trim();
+      const text = line.slice(separatorIndex + 1).trim();
+      return { author, text };
+    })
+    .filter((comment) => comment.text.length > 0);
 
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -79,12 +128,17 @@ export default function AdminPage() {
       const draftAge = typeof draft.age === 'string' ? draft.age : '';
       const draftWeight = typeof draft.weight === 'string' ? draft.weight : '';
       const isMonths = /개월|월/.test(draftAge);
+      const draftFunFacts = normalizeStringArray((draft as { funFacts?: unknown }).funFacts);
+      const draftComments = normalizeComments((draft as { comments?: unknown }).comments);
 
       setForm({
         ...emptyPetProfile,
         ...draft,
+        birthDate: typeof draft.birthDate === 'string' ? draft.birthDate : '',
         age: normalizeNumeric(draftAge),
         weight: normalizeDecimal(draftWeight),
+        funFacts: draftFunFacts,
+        comments: draftComments,
       });
       setSavedSlug('');
       setSavedShareToken('');
@@ -179,6 +233,8 @@ export default function AdminPage() {
       ...pet,
       age: normalizeNumeric(pet.age),
       weight: normalizeDecimal(pet.weight),
+      funFacts: normalizeStringArray(pet.funFacts),
+      comments: normalizeComments(pet.comments),
     });
     setStatus(null);
     setSavedSlug(pet.slug);
@@ -274,8 +330,11 @@ export default function AdminPage() {
     const payload: PetProfileData = {
       ...form,
       slug: sanitizedSlug,
+      birthDate: form.birthDate ?? '',
       age: normalizedAge ? `${normalizedAge}${ageUnit === 'months' ? '개월' : '살'}` : '',
       weight: normalizeDecimal(form.weight),
+      funFacts: normalizeStringArray(form.funFacts),
+      comments: normalizeComments(form.comments),
       shareToken: form.shareToken || generateToken(),
     };
 
@@ -597,6 +656,15 @@ export default function AdminPage() {
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
+                <div className="grid" style={{ rowGap: '4px' }}>
+                  <label className="text-gray-600">생일</label>
+                  <input
+                    type="date"
+                    value={form.birthDate ?? ''}
+                    onChange={(event) => setForm((prev) => ({ ...prev, birthDate: event.target.value }))}
+                    className="rounded-2xl px-4 py-3 bg-gray-100"
+                  />
+                </div>
               <div className="grid gap-2 grid-cols-2">
                 <div className="grid min-w-0" style={{ rowGap: '4px' }}>
                   <label className="text-gray-600">나이</label>
@@ -693,6 +761,30 @@ export default function AdminPage() {
                     className="w-full min-w-0 rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
+              </div>
+              <div className="grid" style={{ rowGap: '4px' }}>
+                <label className="text-gray-600">Fun Facts (한 줄에 하나씩)</label>
+                <textarea
+                  value={form.funFacts.join('\n')}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, funFacts: parseFunFactsText(event.target.value) }))
+                  }
+                  placeholder={'예:\n처음 만나면 삑삑이 장난감을 좋아해요.\n산책보다 사람을 더 좋아해요.'}
+                  className="rounded-2xl px-4 py-3 bg-gray-100"
+                  rows={4}
+                />
+              </div>
+              <div className="grid" style={{ rowGap: '4px' }}>
+                <label className="text-gray-600">댓글 (한 줄당 1개, 형식: 작성자: 내용)</label>
+                <textarea
+                  value={commentsToText(form.comments)}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, comments: parseCommentsText(event.target.value) }))
+                  }
+                  placeholder={'예:\n이웃집 보호자: 너무 귀여워요!\n강아지 러버: 생일 축하해요 🎉'}
+                  className="rounded-2xl px-4 py-3 bg-gray-100"
+                  rows={4}
+                />
               </div>
               <div className="grid" style={{ rowGap: '4px', marginBottom: '28px' }}>
                   <div className="flex items-center gap-2">

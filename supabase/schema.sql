@@ -5,6 +5,7 @@ create table if not exists public.pets (
   slug text unique not null,
   share_token text unique not null default encode(gen_random_bytes(16), 'hex'),
   name text not null default '',
+  birth_date text not null default '',
   breed text not null default '',
   age text not null default '',
   weight text not null default '',
@@ -12,6 +13,8 @@ create table if not exists public.pets (
   location text not null default '',
   favorite_food text not null default '',
   favorite_toy text not null default '',
+  fun_facts jsonb not null default '[]'::jsonb,
+  comments jsonb not null default '[]'::jsonb,
   personality text not null default '',
   owner_contact text not null default '',
   health_notes text not null default '',
@@ -21,8 +24,11 @@ create table if not exists public.pets (
 
 alter table public.pets
   add column if not exists share_token text,
+  add column if not exists birth_date text not null default '',
   add column if not exists owner_contact text not null default '',
-  add column if not exists health_notes text not null default '';
+  add column if not exists health_notes text not null default '',
+  add column if not exists fun_facts jsonb not null default '[]'::jsonb,
+  add column if not exists comments jsonb not null default '[]'::jsonb;
 
 alter table public.pets
   alter column share_token set default encode(gen_random_bytes(16), 'hex');
@@ -70,11 +76,47 @@ begin
     from information_schema.columns
     where table_schema = 'public'
       and table_name = 'pets'
+      and column_name = 'birth_date'
+  ) then
+    update public.pets
+    set birth_date = ''
+    where birth_date is null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pets'
       and column_name = 'share_token'
   ) then
     update public.pets
     set share_token = encode(gen_random_bytes(16), 'hex')
     where share_token is null or share_token = '';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pets'
+      and column_name = 'fun_facts'
+  ) then
+    update public.pets
+    set fun_facts = '[]'::jsonb
+    where fun_facts is null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pets'
+      and column_name = 'comments'
+  ) then
+    update public.pets
+    set comments = '[]'::jsonb
+    where comments is null;
   end if;
 end;
 $$;
