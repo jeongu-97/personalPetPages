@@ -5,6 +5,7 @@ export type PetRecord = {
   slug: string;
   share_token?: string | null;
   name: string;
+  birth_date?: string | null;
   breed: string;
   age: string;
   weight: string;
@@ -27,6 +28,7 @@ export const toPetProfile = (record: PetRecord): PetProfileData => ({
   slug: record.slug,
   shareToken: record.share_token ?? '',
   name: record.name,
+  birthDate: record.birth_date ?? '',
   breed: record.breed,
   age: record.age,
   weight: record.weight,

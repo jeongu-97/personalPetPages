@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Heart, Calendar, Weight, Ruler, MapPin, Phone } from 'lucide-react';
+import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { PetProfileData } from '../types/pet';
 
@@ -27,6 +27,16 @@ const formatAge = (value: string) => {
 const formatWeight = (value: string) => {
   const numeric = normalizeDecimal(value);
   return numeric ? `${numeric}kg` : '';
+};
+const formatBirthDate = (value?: string) => {
+  const raw = (value ?? '').trim();
+  if (!raw) return '생일 미입력';
+
+  const normalized = raw.replace(/\./g, '-').replace(/\//g, '-');
+  const matched = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (matched) return `${matched[1]}.${matched[2]}.${matched[3]}`;
+
+  return raw;
 };
 
 function BackgroundLayer({ mouseX, mouseY }: ParallaxProps) {
@@ -71,18 +81,21 @@ function PetProfileCard({
   const shadows = isFemale
     ? {
         outer: '20px 20px 40px #d3b3c2, -20px -20px 40px #fff6fa',
-        inset: 'inset 8px 8px 16px #dbc1ce, inset -8px -8px 16px #fff8fb',
+        inset: 'inset 8px 8px 16px #d9b7cb, inset -8px -8px 16px #fff8fb',
         small: '12px 12px 24px #dbc1ce, -12px -12px 24px #fff8fb',
         button: '8px 8px 16px #dbc1ce, -8px -8px 16px #fff8fb',
         glass: '0 8px 32px rgba(176, 114, 140, 0.12)',
       }
     : {
         outer: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
-        inset: 'inset 8px 8px 16px #b8bec5, inset -8px -8px 16px #ffffff',
+        inset: 'inset 8px 8px 16px #afbdd4, inset -8px -8px 16px #ffffff',
         small: '12px 12px 24px #b8bec5, -12px -12px 24px #ffffff',
         button: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
         glass: '0 8px 32px rgba(0, 0, 0, 0.1)',
       };
+  const swappedInsetButtonShadow = isFemale
+    ? 'inset 8px 8px 16px #fff8fb, inset -8px -8px 16px #d9b7cb'
+    : 'inset 8px 8px 16px #ffffff, inset -8px -8px 16px #afbdd4';
 
   const calculateRotation = () => {
     if (!cardRef.current) return { x: 0, y: 0 };
@@ -208,6 +221,47 @@ function PetProfileCard({
     handleToggleFlip();
   };
 
+  const stopCardFlipFromChild = (event: any) => {
+    event.stopPropagation();
+  };
+
+  const handleShareProfile = async (event: any) => {
+    stopCardFlipFromChild(event);
+    if (typeof window === 'undefined') return;
+    const shareUrl = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${pet.name || '반려동물'} 프로필`,
+          url: shareUrl,
+        });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSaveImage = (event: any) => {
+    stopCardFlipFromChild(event);
+    if (!pet.mainPhoto || typeof window === 'undefined') return;
+
+    const downloadName = `${(pet.slug || pet.name || 'pet').trim()}-profile.jpg`;
+    const link = window.document.createElement('a');
+    link.href = pet.mainPhoto;
+    link.download = downloadName;
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const frontCardContent = (
     <>
       <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
@@ -227,21 +281,41 @@ function PetProfileCard({
         }}
       >
         <div className="space-y-[clamp(8px,1.5vh,16px)]">
-          <div className="flex items-end justify-center gap-3">
-            <h1 className="mb-1" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
+          <div className="flex items-end justify-center gap-2">
+            <h1 className="leading-[0.9]" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
               {pet.name}
             </h1>
-            <p className="text-gray-600" style={{ fontSize: 'clamp(14px, 2.2vh, 20px)' }}>
-              {pet.breed}
-            </p>
+            <span
+              className="font-semibold leading-none"
+              style={{
+                fontSize: 'clamp(18px, 3vh, 26px)',
+                color: pet.gender === '암컷' ? '#ec4899' : pet.gender === '수컷' ? '#3b82f6' : '#9ca3af',
+              }}
+            >
+              {pet.gender === '암컷' ? '♀' : pet.gender === '수컷' ? '♂' : '·'}
+            </span>
+          </div>
+
+          <p className="text-center text-gray-600 leading-none -mt-4" style={{ fontSize: 'clamp(13px, 2vh, 18px)' }}>
+            {pet.breed || '품종 미입력'}
+          </p>
+
+          <div className="flex items-center justify-center gap-2 text-gray-600" style={{ fontSize: 'clamp(12px, 1.8vh, 16px)' }}>
+            <Cake
+              className="shrink-0 text-gray-500"
+              style={{ width: 'clamp(14px, 2.1vh, 18px)', height: 'clamp(14px, 2.1vh, 18px)' }}
+            />
+            <span>{formatBirthDate(pet.birthDate)}</span>
+            <span className="text-gray-300">•</span>
+            <span className="font-semibold" style={{ color: '#a855f7' }}>
+              {formatAge(pet.age) || '나이 미입력'}
+            </span>
           </div>
 
           <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
             {[
-              { icon: Calendar, label: '나이', value: formatAge(pet.age) },
-              { icon: Weight, label: '체중', value: formatWeight(pet.weight) },
-              { icon: Ruler, label: '성별', value: pet.gender },
-              { icon: MapPin, label: '위치', value: pet.location },
+              { icon: Weight, label: '체중', value: formatWeight(pet.weight) || '미입력' },
+              { icon: MapPin, label: '위치', value: pet.location || '미입력' },
             ].map(({ icon: Icon, label, value }) => (
               <div
                 key={label}
@@ -250,6 +324,36 @@ function PetProfileCard({
                   background: baseBg,
                   boxShadow: shadows.inset,
                   padding: 'clamp(8px, 1.2vh, 16px)',
+                }}
+              >
+                <Icon
+                  className="text-purple-500 shrink-0"
+                  style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+                />
+                <div className="min-w-0">
+                  <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                    {label}
+                  </div>
+                  <div className="font-medium truncate" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                    {value}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.2vh, 12px)' }}>
+            {[
+              { icon: Bone, label: '좋아하는 간식', value: pet.favoriteFood || '미입력' },
+              { icon: ToyBrick, label: '좋아하는 장난감', value: pet.favoriteToy || '미입력' },
+            ].map(({ icon: Icon, label, value }) => (
+              <div
+                key={label}
+                className="flex items-center gap-2 text-gray-700 rounded-2xl"
+                style={{
+                  background: baseBg,
+                  boxShadow: shadows.inset,
+                  padding: 'clamp(10px, 1.5vh, 16px)',
                 }}
               >
                 <Icon
@@ -323,9 +427,26 @@ function PetProfileCard({
   );
 
   const backCardContent = (
-    <div className="overflow-y-auto flex-1">
-      <div className="space-y-[clamp(8px,1.5vh,16px)] p-[clamp(12px,2vh,24px)]">
-        <p style={{ fontSize: 'clamp(18px, 3vh, 28px)', textAlign: 'center' }}>카드 뒷면</p>
+    <div className="overflow-y-auto flex-1 flex flex-col">
+      <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
+        <ImageWithFallback
+          src={pet.mainPhoto}
+          alt={pet.name}
+          className="w-full h-full object-cover"
+          style={{ transform: 'scaleX(-1)' }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
+          }}
+        />
+      </div>
+
+      <div
+        className="space-y-[clamp(8px,1.5vh,16px)]"
+        style={{ padding: 'clamp(12px, 2vh, 24px) clamp(18px, 3vw, 30px)' }}
+      >
         <div
           className="rounded-2xl"
           style={{
@@ -336,33 +457,105 @@ function PetProfileCard({
             padding: 'clamp(10px, 1.5vh, 20px)',
           }}
         >
-          <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-            좋아하는 간식
+          <div className="flex items-center gap-2 text-gray-700 mb-2">
+            <Star
+              className="shrink-0"
+              style={{
+                width: 'clamp(16px, 2.5vh, 20px)',
+                height: 'clamp(16px, 2.5vh, 20px)',
+                fill: '#facc15',
+                stroke: '#facc15',
+              }}
+            />
+            <p className="font-semibold" style={{ fontSize: 'clamp(16px, 2.4vh, 22px)' }}>
+              Fun Facts
+            </p>
           </div>
-          <p className="leading-relaxed text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-            {pet.favoriteFood || '입력되지 않았습니다.'}
-          </p>
+          {[
+            {
+              color: '#8b5cf6',
+              text: `${pet.name || '우리 아이'}(가)를 처음 만난다면 ${(pet.favoriteToy || '애착 장난감').trim()}(을)를 준비해보세요!`,
+            },
+            {
+              color: '#ec4899',
+              text: (pet.personality.split('\n').find((line) => line.trim().length > 0) || '애교가 많아요').trim(),
+            },
+            {
+              color: '#3b82f6',
+              text:
+                formatBirthDate(pet.birthDate) === '생일 미입력'
+                  ? '생일 정보는 아직 입력되지 않았어요.'
+                  : `생일을 축하해주고 싶다면 ${formatBirthDate(pet.birthDate)}을 기억해주세요!`,
+            },
+          ].map(({ color, text }, index) => (
+            <div key={`fact-row-${index}`} className="flex items-start gap-2 leading-relaxed">
+              <span className="shrink-0 mt-[0.15em]" style={{ color }}>
+                •
+              </span>
+              <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                {text}
+              </p>
+            </div>
+          ))}
         </div>
 
-        <div
-          className="rounded-2xl"
+        <button
+          type="button"
+          onPointerDown={stopCardFlipFromChild}
+          onPointerUp={stopCardFlipFromChild}
+          onPointerCancel={stopCardFlipFromChild}
+          onClick={handleShareProfile}
+          className="w-full rounded-2xl text-gray-700"
           style={{
-            background: 'rgba(255, 255, 255, 0.5)',
-            backdropFilter: 'blur(10px)',
-            border: '2px solid rgba(255, 255, 255, 0.7)',
-            boxShadow: shadows.glass,
-            padding: 'clamp(10px, 1.5vh, 20px)',
+            background: baseBg,
+            boxShadow: swappedInsetButtonShadow,
+            padding: 'clamp(10px, 1.5vh, 16px)',
+            minHeight: 'clamp(46px, 6.8vh, 56px)',
+            fontSize: 'clamp(13px, 2vh, 16px)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            columnGap: '8px',
           }}
         >
-          <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-            좋아하는 장난감
-          </div>
-          <p className="leading-relaxed text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-            {pet.favoriteToy || '입력되지 않았습니다.'}
-          </p>
-        </div>
+          <Share2
+            className="text-purple-500 shrink-0"
+            style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+          />
+          <span>프로필 공유하기</span>
+        </button>
 
-        <p className="text-center text-gray-500" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
+        <button
+          type="button"
+          disabled={!pet.mainPhoto}
+          onPointerDown={stopCardFlipFromChild}
+          onPointerUp={stopCardFlipFromChild}
+          onPointerCancel={stopCardFlipFromChild}
+          onClick={handleSaveImage}
+          className="w-full rounded-2xl text-gray-700"
+          style={{
+            background: baseBg,
+            boxShadow: swappedInsetButtonShadow,
+            padding: 'clamp(10px, 1.5vh, 16px)',
+            minHeight: 'clamp(46px, 6.8vh, 56px)',
+            fontSize: 'clamp(13px, 2vh, 16px)',
+            fontWeight: 600,
+            opacity: pet.mainPhoto ? 1 : 0.6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            columnGap: '8px',
+          }}
+        >
+          <Download
+            className="text-purple-500 shrink-0"
+            style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+          />
+          <span>이미지로 저장</span>
+        </button>
+
+        <p className="text-center text-gray-500 font-medium" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
           탭 또는 좌우 스와이프로 앞면으로 돌아오세요.
         </p>
       </div>

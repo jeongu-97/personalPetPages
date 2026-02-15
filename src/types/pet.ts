@@ -3,6 +3,7 @@ export interface PetProfileData {
   slug: string;
   shareToken: string;
   name: string;
+  birthDate?: string;
   breed: string;
   age: string;
   weight: string;
@@ -19,6 +20,7 @@ export const emptyPetProfile: PetProfileData = {
   slug: '',
   shareToken: '',
   name: '',
+  birthDate: '',
   breed: '',
   age: '',
   weight: '',
