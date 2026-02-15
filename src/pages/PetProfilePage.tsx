@@ -14,7 +14,9 @@ export default function PetProfilePage() {
   const [state, setState] = useState<LoadState>('loading');
   const [pet, setPet] = useState<PetProfileData | null>(null);
   const [isCreationGuideOpen, setIsCreationGuideOpen] = useState(false);
-  const isCreatedFromSurvey = new URLSearchParams(location.search).get('created') === '1';
+  const searchParams = new URLSearchParams(location.search);
+  const isCreatedFromSurvey = searchParams.get('created') === '1';
+  const token = searchParams.get('token') ?? '';
 
   useEffect(() => {
     if (!slug) return;
@@ -75,9 +77,12 @@ export default function PetProfilePage() {
   };
 
   if (state === 'ready' && pet) {
+    const editLink = `/edit/${encodeURIComponent(pet.slug)}${
+      token ? `?token=${encodeURIComponent(token)}` : ''
+    }`;
     return (
       <>
-        <PetProfileScene petData={pet} />
+        <PetProfileScene petData={pet} editLink={editLink} />
         {isCreationGuideOpen && (
           <div
             style={{

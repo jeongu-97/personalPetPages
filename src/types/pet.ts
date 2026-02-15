@@ -10,6 +10,8 @@ export interface PetProfileData {
   slug: string;
   shareToken: string;
   petKind?: PetKind;
+  backgroundColor?: string;
+  accentColor?: string;
   name: string;
   birthDate?: string;
   breed: string;
@@ -30,6 +32,8 @@ export const emptyPetProfile: PetProfileData = {
   slug: '',
   shareToken: '',
   petKind: '',
+  backgroundColor: '',
+  accentColor: '',
   name: '',
   birthDate: '',
   breed: '',

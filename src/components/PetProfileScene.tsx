@@ -1,12 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { buildDefaultFunFacts } from '../lib/funFacts';
 import { PetKind, PetProfileData } from '../types/pet';
 
 interface ParallaxProps {
   mouseX: number;
   mouseY: number;
 }
+
+type SceneMode = 'view' | 'edit';
+
+type PetProfileSceneProps = {
+  petData: PetProfileData;
+  mode?: SceneMode;
+  onPetChange?: (nextPet: PetProfileData) => void;
+  editLink?: string;
+  onSaveRequest?: () => void;
+  isSaving?: boolean;
+  onPhotoUploadRequest?: (file: File) => Promise<void> | void;
+  isUploadingPhoto?: boolean;
+};
 
 type DisplayPetKind = PetKind | 'unknown';
 
@@ -43,10 +57,6 @@ const formatAge = (value: string, birthDate?: string) => {
   if (/살|년/.test(value)) return `${numeric}살`;
   return `${numeric}살`;
 };
-const formatWeight = (value: string) => {
-  const numeric = normalizeDecimal(value);
-  return numeric ? `${numeric}kg` : '';
-};
 const formatBirthDate = (value?: string) => {
   const raw = (value ?? '').trim();
   if (!raw) return '생일 미입력';
@@ -60,6 +70,81 @@ const formatBirthDate = (value?: string) => {
 
 const normalizePetKind = (value: unknown): PetKind =>
   value === 'dog' || value === 'cat' || value === 'bird' || value === 'fish' ? value : '';
+
+const isValidHexColor = (value?: string) =>
+  typeof value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+
+const resolveCardBackground = (gender: string, backgroundColor?: string) => {
+  if (isValidHexColor(backgroundColor)) return backgroundColor.trim();
+  return gender === '암컷' ? '#f7e5ef' : '#e0e5ec';
+};
+
+const resolveAccentColor = (gender: string, accentColor?: string) => {
+  if (isValidHexColor(accentColor)) return accentColor.trim();
+  if (gender === '암컷') return '#ec4899';
+  if (gender === '수컷') return '#3b82f6';
+  return '#a855f7';
+};
+
+type Rgb = { r: number; g: number; b: number };
+
+const hexToRgb = (hex: string): Rgb => {
+  const raw = hex.replace('#', '').trim();
+  const normalized =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((ch) => `${ch}${ch}`)
+          .join('')
+      : raw;
+
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+};
+
+const rgbToHex = ({ r, g, b }: Rgb) =>
+  `#${[r, g, b]
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0'))
+    .join('')}`;
+
+const mixHex = (hex: string, target: Rgb, ratio: number) => {
+  const base = hexToRgb(hex);
+  const t = Math.max(0, Math.min(1, ratio));
+  return rgbToHex({
+    r: base.r + (target.r - base.r) * t,
+    g: base.g + (target.g - base.g) * t,
+    b: base.b + (target.b - base.b) * t,
+  });
+};
+
+const lightenHex = (hex: string, ratio: number) => mixHex(hex, { r: 255, g: 255, b: 255 }, ratio);
+const darkenHex = (hex: string, ratio: number) => mixHex(hex, { r: 0, g: 0, b: 0 }, ratio);
+const withAlpha = (hex: string, alpha: number) => {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const createNeumorphismPalette = (baseColor: string) => {
+  const darkStrong = darkenHex(baseColor, 0.28);
+  const dark = darkenHex(baseColor, 0.22);
+  const darkSoft = darkenHex(baseColor, 0.16);
+  const lightStrong = lightenHex(baseColor, 0.46);
+  const light = lightenHex(baseColor, 0.38);
+  const lightSoft = lightenHex(baseColor, 0.28);
+
+  return {
+    outer: `20px 20px 40px ${darkStrong}, -20px -20px 40px ${lightStrong}`,
+    inset: `inset 8px 8px 16px ${dark}, inset -8px -8px 16px ${light}`,
+    small: `12px 12px 24px ${darkSoft}, -12px -12px 24px ${lightSoft}`,
+    button: `8px 8px 16px ${darkSoft}, -8px -8px 16px ${lightSoft}`,
+    swappedInsetButton: `inset 8px 8px 16px ${light}, inset -8px -8px 16px ${dark}`,
+    glass: `0 8px 32px ${withAlpha(darkenHex(baseColor, 0.45), 0.16)}`,
+  };
+};
 
 const petEmojiByKind: Record<DisplayPetKind, string> = {
   dog: '🐶',
@@ -93,9 +178,28 @@ function PetProfileCard({
   mouseX,
   mouseY,
   pet,
-}: ParallaxProps & { pet: PetProfileData }) {
+  mode,
+  onPetChange,
+  editLink,
+  onSaveRequest,
+  isSaving = false,
+  onPhotoUploadRequest,
+  isUploadingPhoto = false,
+}: ParallaxProps & {
+  pet: PetProfileData;
+  mode: SceneMode;
+  onPetChange?: (nextPet: PetProfileData) => void;
+  editLink?: string;
+  onSaveRequest?: () => void;
+  isSaving?: boolean;
+  onPhotoUploadRequest?: (file: File) => Promise<void> | void;
+  isUploadingPhoto?: boolean;
+}) {
   const cardRef = useRef<HTMLDivElement>(null);
   const frontCaptureRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const bgColorInputRef = useRef<HTMLInputElement | null>(null);
+  const accentColorInputRef = useRef<HTMLInputElement | null>(null);
   const pointerStartRef = useRef<{
     x: number;
     y: number;
@@ -110,29 +214,23 @@ function PetProfileCard({
   const [isFlipping, setIsFlipping] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
+  const isEditMode = mode === 'edit';
   const hasMainPhoto = Boolean(pet.mainPhoto?.trim());
   const petKind = normalizePetKind(pet.petKind) || 'unknown';
   const petEmoji = petEmojiByKind[petKind];
-  const isFemale = pet.gender === '암컷';
-  const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
-  const shadows = isFemale
-    ? {
-        outer: '20px 20px 40px #d3b3c2, -20px -20px 40px #fff6fa',
-        inset: 'inset 8px 8px 16px #d9b7cb, inset -8px -8px 16px #fff8fb',
-        small: '12px 12px 24px #dbc1ce, -12px -12px 24px #fff8fb',
-        button: '8px 8px 16px #dbc1ce, -8px -8px 16px #fff8fb',
-        glass: '0 8px 32px rgba(176, 114, 140, 0.12)',
-      }
-    : {
-        outer: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
-        inset: 'inset 8px 8px 16px #afbdd4, inset -8px -8px 16px #ffffff',
-        small: '12px 12px 24px #b8bec5, -12px -12px 24px #ffffff',
-        button: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
-        glass: '0 8px 32px rgba(0, 0, 0, 0.1)',
-      };
-  const swappedInsetButtonShadow = isFemale
-    ? 'inset 8px 8px 16px #fff8fb, inset -8px -8px 16px #d9b7cb'
-    : 'inset 8px 8px 16px #ffffff, inset -8px -8px 16px #afbdd4';
+  const baseBg = resolveCardBackground(pet.gender, pet.backgroundColor);
+  const pointColor = resolveAccentColor(pet.gender, pet.accentColor);
+  const genderMarkColor =
+    pet.gender === '암컷' ? '#ec4899' : pet.gender === '수컷' ? '#3b82f6' : '#9ca3af';
+  const fallbackFunFacts = buildDefaultFunFacts(pet);
+  const displayFunFacts = pet.funFacts.length ? pet.funFacts : fallbackFunFacts;
+  const shadows = createNeumorphismPalette(baseBg);
+  const swappedInsetButtonShadow = shadows.swappedInsetButton;
+  const funFactColors = [pointColor, lightenHex(pointColor, 0.22), darkenHex(pointColor, 0.12)];
+  const commentGradient = `linear-gradient(90deg, ${darkenHex(pointColor, 0.1)} 0%, ${lightenHex(
+    pointColor,
+    0.1
+  )} 100%)`;
 
   const calculateRotation = () => {
     if (!cardRef.current) return { x: 0, y: 0 };
@@ -156,6 +254,106 @@ function PetProfileCard({
   const swipeDistanceThreshold = 18;
   const tapMaxDistance = 8;
   const tapMaxDuration = 280;
+
+  const patchPet = (patch: Partial<PetProfileData>) => {
+    if (!onPetChange) return;
+    onPetChange({ ...pet, ...patch });
+  };
+
+  const normalizeBirthDateInput = (value: string) => {
+    const raw = value.trim();
+    if (!raw) return '';
+    const normalized = raw.replace(/\./g, '-').replace(/\//g, '-');
+    const matched = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!matched) return raw;
+    return `${matched[1]}-${matched[2].padStart(2, '0')}-${matched[3].padStart(2, '0')}`;
+  };
+
+  const commitSingleLineField = (field: keyof PetProfileData) => (event: any) => {
+    const rawValue = (event.currentTarget.textContent ?? '').replace(/\n+/g, ' ').trim();
+    const nextValue =
+      field === 'weight' ? normalizeDecimal(rawValue) : rawValue;
+    patchPet({ [field]: nextValue } as Partial<PetProfileData>);
+  };
+
+  const commitBirthDateField = (event: any) => {
+    const nextBirthDate = normalizeBirthDateInput((event.currentTarget.textContent ?? '').replace(/\n+/g, ' '));
+    patchPet({
+      birthDate: nextBirthDate,
+      age: ageFromBirthDate(nextBirthDate),
+    });
+  };
+
+  const commitMultiLineField = (field: keyof PetProfileData) => (event: any) => {
+    const nextValue = (event.currentTarget.textContent ?? '').trim();
+    patchPet({ [field]: nextValue } as Partial<PetProfileData>);
+  };
+
+  const commitFunFacts = (event: any) => {
+    const raw = (event.currentTarget.textContent ?? '').trim();
+    const nextFacts = raw
+      .split('\n')
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0);
+    patchPet({ funFacts: nextFacts });
+  };
+
+  const commitComments = (event: any) => {
+    const raw = (event.currentTarget.textContent ?? '').trim();
+    const rows = raw
+      .split('\n')
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0);
+    const nextComments = rows.map((row: string) => {
+      const separator = row.indexOf(':');
+      if (separator > 0) {
+        return {
+          author: row.slice(0, separator).trim(),
+          text: row.slice(separator + 1).trim(),
+        };
+      }
+      return { author: '', text: row };
+    });
+    patchPet({ comments: nextComments });
+  };
+
+  const handleSingleLineEditableKeyDown = (event: any) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    event.currentTarget.blur();
+  };
+
+  const handleToggleGender = (event: any) => {
+    if (!isEditMode) return;
+    stopCardFlipFromChild(event);
+    patchPet({ gender: pet.gender === '암컷' ? '수컷' : '암컷' });
+  };
+
+  const handlePhotoFileChange = async (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file || !onPhotoUploadRequest) return;
+    try {
+      await onPhotoUploadRequest(file);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleBackgroundColorChange = (event: any) => {
+    const nextColor = event.target.value;
+    if (!isEditMode) return;
+    if (!isValidHexColor(nextColor)) return;
+    patchPet({ backgroundColor: nextColor });
+    event.target.value = '';
+  };
+
+  const handleAccentColorChange = (event: any) => {
+    const nextColor = event.target.value;
+    if (!isEditMode) return;
+    if (!isValidHexColor(nextColor)) return;
+    patchPet({ accentColor: nextColor });
+    event.target.value = '';
+  };
 
   useEffect(() => {
     return () => {
@@ -206,6 +404,7 @@ function PetProfileCard({
   };
 
   const handlePointerDown = (event: any) => {
+    if (isEditMode) return;
     // 왼쪽 버튼/터치만 처리
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     if (isFlipping) return;
@@ -219,6 +418,7 @@ function PetProfileCard({
   };
 
   const handlePointerMove = (event: any) => {
+    if (isEditMode) return;
     const start = pointerStartRef.current;
     if (!start || start.id !== event.pointerId || swipeTriggeredRef.current) return;
 
@@ -236,6 +436,7 @@ function PetProfileCard({
   };
 
   const handlePointerUp = (event: any) => {
+    if (isEditMode) return;
     const start = pointerStartRef.current;
     if (!start || start.id !== event.pointerId) return;
 
@@ -253,6 +454,7 @@ function PetProfileCard({
   };
 
   const handlePointerCancel = (event: any) => {
+    if (isEditMode) return;
     const start = pointerStartRef.current;
     if (!start || start.id !== event.pointerId) return;
     pointerStartRef.current = null;
@@ -260,6 +462,7 @@ function PetProfileCard({
   };
 
   const handleWheel = (event: any) => {
+    if (isEditMode) return;
     if (isFlipping || wheelLockRef.current !== null) return;
     const absX = Math.abs(event.deltaX);
     const absY = Math.abs(event.deltaY);
@@ -274,6 +477,7 @@ function PetProfileCard({
   };
 
   const handleCardClick = () => {
+    if (isEditMode) return;
     if (isEditMenuOpen) {
       setIsEditMenuOpen(false);
       return;
@@ -323,10 +527,183 @@ function PetProfileCard({
     stopCardFlipFromChild(event);
     setIsEditMenuOpen(false);
     if (typeof window === 'undefined') return;
-    window.location.href = '/admin';
+    if (editLink) {
+      window.location.href = editLink;
+      return;
+    }
+    const token = new URLSearchParams(window.location.search).get('token');
+    const fallbackLink = `/edit/${encodeURIComponent(pet.slug)}${
+      token ? `?token=${encodeURIComponent(token)}` : ''
+    }`;
+    window.location.href = fallbackLink;
   };
 
-  const renderEditMenuButton = () => (
+  const renderTopLeftControls = () =>
+    isEditMode ? (
+      <>
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoFileChange}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={bgColorInputRef}
+          type="color"
+          defaultValue={isValidHexColor(pet.backgroundColor) ? pet.backgroundColor : '#e0e5ec'}
+          onChange={handleBackgroundColorChange}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={accentColorInputRef}
+          type="color"
+          defaultValue={pointColor}
+          onChange={handleAccentColorChange}
+          style={{ display: 'none' }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: '12px',
+            left: '8px',
+            zIndex: 25,
+            display: 'flex',
+            gap: '4px',
+          }}
+        >
+        <button
+          type="button"
+          onPointerDown={stopCardFlipFromChild}
+          onPointerUp={stopCardFlipFromChild}
+          onPointerCancel={stopCardFlipFromChild}
+          onClick={(event) => {
+            stopCardFlipFromChild(event);
+            bgColorInputRef.current?.click();
+          }}
+          aria-label="배경색 변경"
+          style={{
+            minWidth: '70px',
+            height: '30px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.22)',
+            backdropFilter: 'blur(10px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+            border: '1px solid rgba(15, 23, 42, 0.28)',
+            boxShadow: 'none',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#111827',
+            cursor: 'pointer',
+          }}
+        >
+          배경색
+        </button>
+        <button
+          type="button"
+          onPointerDown={stopCardFlipFromChild}
+          onPointerUp={stopCardFlipFromChild}
+          onPointerCancel={stopCardFlipFromChild}
+          onClick={(event) => {
+            stopCardFlipFromChild(event);
+            accentColorInputRef.current?.click();
+          }}
+          aria-label="포인트색 변경"
+          style={{
+            minWidth: '78px',
+            height: '30px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.22)',
+            backdropFilter: 'blur(10px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+            border: '1px solid rgba(15, 23, 42, 0.28)',
+            boxShadow: 'none',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#111827',
+            cursor: 'pointer',
+          }}
+        >
+          포인트색
+        </button>
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: '12px',
+            bottom: '12px',
+            zIndex: 25,
+          }}
+        >
+          <button
+            type="button"
+            onPointerDown={stopCardFlipFromChild}
+            onPointerUp={stopCardFlipFromChild}
+            onPointerCancel={stopCardFlipFromChild}
+            onClick={(event) => {
+              stopCardFlipFromChild(event);
+              photoInputRef.current?.click();
+            }}
+            disabled={!onPhotoUploadRequest || isUploadingPhoto}
+            aria-label="사진 업로드"
+            style={{
+              minWidth: '84px',
+              height: '30px',
+              borderRadius: '10px',
+              background: 'rgba(255, 255, 255, 0.22)',
+              backdropFilter: 'blur(10px) saturate(140%)',
+              WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+              border: '1px solid rgba(15, 23, 42, 0.28)',
+              boxShadow: 'none',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#111827',
+              opacity: !onPhotoUploadRequest || isUploadingPhoto ? 0.55 : 1,
+              cursor: !onPhotoUploadRequest || isUploadingPhoto ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isUploadingPhoto ? '업로드중' : '사진 변경'}
+          </button>
+        </div>
+      </>
+    ) : null;
+
+  const renderTopRightControl = () => (
+    isEditMode ? (
+    <button
+      type="button"
+      onPointerDown={stopCardFlipFromChild}
+      onPointerUp={stopCardFlipFromChild}
+      onPointerCancel={stopCardFlipFromChild}
+      onClick={(event) => {
+        stopCardFlipFromChild(event);
+        onSaveRequest?.();
+      }}
+      disabled={!onSaveRequest || isSaving}
+      aria-label="변경사항 저장"
+      style={{
+        position: 'absolute',
+        top: '12px',
+        right: '12px',
+        zIndex: 25,
+        minWidth: '92px',
+        height: '30px',
+        borderRadius: '10px',
+        background: 'rgba(255, 255, 255, 0.22)',
+        backdropFilter: 'blur(10px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+        border: '1px solid rgba(15, 23, 42, 0.28)',
+        boxShadow: 'none',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: '#111827',
+        opacity: !onSaveRequest || isSaving ? 0.55 : 1,
+        cursor: !onSaveRequest || isSaving ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {isSaving ? '저장중...' : '저장'}
+    </button>
+    ) : (
     <div
       data-edit-menu-root="true"
       style={{
@@ -405,6 +782,7 @@ function PetProfileCard({
         </div>
       )}
     </div>
+    )
   );
 
   const cloneNodeWithComputedStyles = (sourceRoot: HTMLElement) => {
@@ -620,7 +998,8 @@ function PetProfileCard({
             background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
           }}
         />
-        {renderEditMenuButton()}
+        {renderTopLeftControls()}
+        {renderTopRightControl()}
       </div>
 
       <div
@@ -631,21 +1010,73 @@ function PetProfileCard({
       >
         <div className="space-y-[clamp(8px,1.5vh,16px)]">
           <div className="flex items-end justify-center gap-2">
-            <h1 className="leading-[0.9]" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
-              {pet.name}
-            </h1>
-            <span
-              className="font-semibold leading-none"
+            <h1
+              className="leading-[0.9]"
+              contentEditable={isEditMode}
+              suppressContentEditableWarning
+              onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+              onBlur={isEditMode ? commitSingleLineField('name') : undefined}
+              onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
               style={{
-                fontSize: 'clamp(18px, 3vh, 26px)',
-                color: pet.gender === '암컷' ? '#ec4899' : pet.gender === '수컷' ? '#3b82f6' : '#9ca3af',
+                fontSize: 'clamp(24px, 4vh, 36px)',
+                outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.45)' : 'none',
+                borderRadius: isEditMode ? '8px' : '0',
+                padding: isEditMode ? '2px 6px' : '0',
+                cursor: isEditMode ? 'text' : 'inherit',
+                minWidth: isEditMode ? '40px' : 'auto',
+                textAlign: 'center',
               }}
             >
-              {pet.gender === '암컷' ? '♀' : pet.gender === '수컷' ? '♂' : '·'}
-            </span>
+              {pet.name || (isEditMode ? '이름 입력' : '')}
+            </h1>
+            {isEditMode ? (
+              <button
+                type="button"
+                onPointerDown={stopCardFlipFromChild}
+                onPointerUp={stopCardFlipFromChild}
+                onPointerCancel={stopCardFlipFromChild}
+                onClick={handleToggleGender}
+                aria-label="성별 전환"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  lineHeight: 1,
+                  fontSize: 'clamp(18px, 3vh, 26px)',
+                  color: genderMarkColor,
+                  cursor: 'pointer',
+                }}
+              >
+                {pet.gender === '암컷' ? '♀' : pet.gender === '수컷' ? '♂' : '·'}
+              </button>
+            ) : (
+              <span
+                className="font-semibold leading-none"
+                style={{
+                  fontSize: 'clamp(18px, 3vh, 26px)',
+                  color: genderMarkColor,
+                }}
+              >
+                {pet.gender === '암컷' ? '♀' : pet.gender === '수컷' ? '♂' : '·'}
+              </span>
+            )}
           </div>
 
-          <p className="text-center text-gray-600 leading-none -mt-4" style={{ fontSize: 'clamp(13px, 2vh, 18px)' }}>
+          <p
+            className="text-center text-gray-600 leading-none -mt-4"
+            contentEditable={isEditMode}
+            suppressContentEditableWarning
+            onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+            onBlur={isEditMode ? commitSingleLineField('breed') : undefined}
+            onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
+            style={{
+              fontSize: 'clamp(13px, 2vh, 18px)',
+              outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+              borderRadius: isEditMode ? '8px' : '0',
+              padding: isEditMode ? '2px 6px' : '0',
+              cursor: isEditMode ? 'text' : 'inherit',
+            }}
+          >
             {pet.breed || '품종 미입력'}
           </p>
 
@@ -654,41 +1085,114 @@ function PetProfileCard({
               className="shrink-0 text-gray-500"
               style={{ width: 'clamp(14px, 2.1vh, 18px)', height: 'clamp(14px, 2.1vh, 18px)' }}
             />
-            <span>{formatBirthDate(pet.birthDate)}</span>
+            <span
+              contentEditable={isEditMode}
+              suppressContentEditableWarning
+              onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+              onBlur={isEditMode ? commitBirthDateField : undefined}
+              onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
+              style={{
+                outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+                borderRadius: isEditMode ? '8px' : '0',
+                padding: isEditMode ? '1px 6px' : '0',
+                cursor: isEditMode ? 'text' : 'inherit',
+              }}
+            >
+              {formatBirthDate(pet.birthDate)}
+            </span>
             <span className="text-gray-300">•</span>
-            <span className="font-semibold" style={{ color: '#a855f7' }}>
+            <span className="font-semibold" style={{ color: pointColor }}>
               {formatAge(pet.age, pet.birthDate) || '나이 미입력'}
             </span>
           </div>
 
           <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
-            {[
-              { icon: Weight, label: '체중', value: formatWeight(pet.weight) || '미입력' },
-              { icon: MapPin, label: '위치', value: pet.location || '미입력' },
-            ].map(({ icon: Icon, label, value }) => (
-              <div
-                key={label}
-                className="flex items-center gap-2 text-gray-700 rounded-2xl"
+            <div
+              className="flex items-center gap-2 text-gray-700 rounded-2xl"
+              style={{
+                background: baseBg,
+                boxShadow: shadows.inset,
+                padding: 'clamp(8px, 1.2vh, 16px)',
+              }}
+            >
+              <Weight
+                className="shrink-0"
                 style={{
-                  background: baseBg,
-                  boxShadow: shadows.inset,
-                  padding: 'clamp(8px, 1.2vh, 16px)',
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
                 }}
-              >
-                <Icon
-                  className="text-purple-500 shrink-0"
-                  style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-                />
-                <div className="min-w-0">
-                  <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                    {label}
-                  </div>
-                  <div className="font-medium truncate" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                    {value}
-                  </div>
+              />
+              <div className="min-w-0">
+                <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                  체중
+                </div>
+                <div className="font-medium" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                  {isEditMode ? (
+                    <input
+                      value={normalizeDecimal(pet.weight)}
+                      onPointerDown={stopCardFlipFromChild}
+                      onChange={(event) => patchPet({ weight: normalizeDecimal(event.target.value) })}
+                      inputMode="decimal"
+                      pattern="[0-9]*[.]?[0-9]*"
+                      placeholder="0"
+                      style={{
+                        width: '52px',
+                        border: 'none',
+                        borderBottom: '1px dashed rgba(107, 114, 128, 0.45)',
+                        outline: 'none',
+                        background: 'transparent',
+                        padding: '0 2px',
+                        marginRight: '2px',
+                        textAlign: 'left',
+                      }}
+                    />
+                  ) : (
+                    <span>{normalizeDecimal(pet.weight) || '미입력'}</span>
+                  )}
+                  {(normalizeDecimal(pet.weight) || isEditMode) && <span>kg</span>}
                 </div>
               </div>
-            ))}
+            </div>
+            <div
+              className="flex items-center gap-2 text-gray-700 rounded-2xl"
+              style={{
+                background: baseBg,
+                boxShadow: shadows.inset,
+                padding: 'clamp(8px, 1.2vh, 16px)',
+              }}
+            >
+              <MapPin
+                className="shrink-0"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <div className="min-w-0">
+                <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                  위치
+                </div>
+                <div
+                  className="font-medium truncate"
+                  contentEditable={isEditMode}
+                  suppressContentEditableWarning
+                  onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+                  onBlur={isEditMode ? commitSingleLineField('location') : undefined}
+                  onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
+                  style={{
+                    fontSize: 'clamp(11px, 1.8vh, 14px)',
+                    outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+                    borderRadius: isEditMode ? '6px' : '0',
+                    padding: isEditMode ? '1px 4px' : '0',
+                    cursor: isEditMode ? 'text' : 'inherit',
+                  }}
+                >
+                  {pet.location || '미입력'}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.2vh, 12px)' }}>
@@ -706,14 +1210,32 @@ function PetProfileCard({
                 }}
               >
                 <Icon
-                  className="text-purple-500 shrink-0"
-                  style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+                  className="shrink-0"
+                  style={{
+                    width: 'clamp(16px, 2.5vh, 20px)',
+                    height: 'clamp(16px, 2.5vh, 20px)',
+                    color: pointColor,
+                  }}
                 />
                 <div className="min-w-0">
                   <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
                     {label}
                   </div>
-                  <div className="font-medium truncate" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                  <div
+                    className="font-medium truncate"
+                    contentEditable={isEditMode}
+                    suppressContentEditableWarning
+                    onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+                    onBlur={isEditMode ? commitSingleLineField(label === '좋아하는 간식' ? 'favoriteFood' : 'favoriteToy') : undefined}
+                    onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
+                    style={{
+                      fontSize: 'clamp(11px, 1.8vh, 14px)',
+                      outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+                      borderRadius: isEditMode ? '6px' : '0',
+                      padding: isEditMode ? '1px 4px' : '0',
+                      cursor: isEditMode ? 'text' : 'inherit',
+                    }}
+                  >
                     {value}
                   </div>
                 </div>
@@ -740,8 +1262,22 @@ function PetProfileCard({
                 <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
                   성격
                 </div>
-                <p className="leading-relaxed" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                  {pet.personality}
+                <p
+                  className="leading-relaxed"
+                  contentEditable={isEditMode}
+                  suppressContentEditableWarning
+                  onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+                  onBlur={isEditMode ? commitMultiLineField('personality') : undefined}
+                  style={{
+                    fontSize: 'clamp(11px, 1.8vh, 14px)',
+                    whiteSpace: 'pre-wrap',
+                    outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+                    borderRadius: isEditMode ? '8px' : '0',
+                    padding: isEditMode ? '3px 6px' : '0',
+                    cursor: isEditMode ? 'text' : 'inherit',
+                  }}
+                >
+                  {pet.personality || (isEditMode ? '성격 입력' : '')}
                 </p>
               </div>
             </div>
@@ -766,7 +1302,22 @@ function PetProfileCard({
                 <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
                   보호자 연락처
                 </div>
-                <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.ownerContact}</p>
+                <p
+                  contentEditable={isEditMode}
+                  suppressContentEditableWarning
+                  onPointerDown={isEditMode ? stopCardFlipFromChild : undefined}
+                  onBlur={isEditMode ? commitSingleLineField('ownerContact') : undefined}
+                  onKeyDown={isEditMode ? handleSingleLineEditableKeyDown : undefined}
+                  style={{
+                    fontSize: 'clamp(11px, 1.8vh, 14px)',
+                    outline: isEditMode ? '1px dashed rgba(107, 114, 128, 0.35)' : 'none',
+                    borderRadius: isEditMode ? '6px' : '0',
+                    padding: isEditMode ? '2px 4px' : '0',
+                    cursor: isEditMode ? 'text' : 'inherit',
+                  }}
+                >
+                  {pet.ownerContact || (isEditMode ? '연락처 입력' : '')}
+                </p>
               </div>
             </div>
           </div>
@@ -801,7 +1352,8 @@ function PetProfileCard({
             background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
           }}
         />
-        {renderEditMenuButton()}
+        {renderTopLeftControls()}
+        {renderTopRightControl()}
       </div>
 
       <div
@@ -832,37 +1384,42 @@ function PetProfileCard({
               Fun Facts
             </p>
           </div>
-          {(pet.funFacts.length
-            ? pet.funFacts.map((text, index) => ({
-                color: ['#8b5cf6', '#ec4899', '#3b82f6'][index % 3],
-                text,
-              }))
-            : [
-                {
-                  color: '#8b5cf6',
-                  text: `${pet.name || '우리 아이'}(가)를 처음 만난다면 ${(pet.favoriteToy || '애착 장난감').trim()}(을)를 준비해보세요!`,
-                },
-                {
-                  color: '#ec4899',
-                  text: (pet.personality.split('\n').find((line) => line.trim().length > 0) || '애교가 많아요').trim(),
-                },
-                {
-                  color: '#3b82f6',
-                  text:
-                    formatBirthDate(pet.birthDate) === '생일 미입력'
-                      ? '생일 정보는 아직 입력되지 않았어요.'
-                      : `생일을 축하해주고 싶다면 ${formatBirthDate(pet.birthDate)}을 기억해주세요!`,
-                },
-              ]).map(({ color, text }, index) => (
-            <div key={`fact-row-${index}`} className="flex items-start gap-2 leading-relaxed">
-              <span className="shrink-0 mt-[0.15em]" style={{ color }}>
-                •
-              </span>
-              <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                {text}
-              </p>
-            </div>
-          ))}
+          {isEditMode ? (
+            <p
+              className="text-gray-700 leading-relaxed"
+              contentEditable
+              suppressContentEditableWarning
+              onPointerDown={stopCardFlipFromChild}
+              onBlur={commitFunFacts}
+              style={{
+                fontSize: 'clamp(11px, 1.8vh, 14px)',
+                whiteSpace: 'pre-wrap',
+                outline: '1px dashed rgba(107, 114, 128, 0.35)',
+                borderRadius: '8px',
+                padding: '6px 8px',
+                cursor: 'text',
+                minHeight: '72px',
+              }}
+            >
+              {displayFunFacts.join('\n')}
+            </p>
+          ) : (
+            (displayFunFacts
+              ? displayFunFacts.map((text, index) => ({
+                  color: funFactColors[index % funFactColors.length],
+                  text,
+                }))
+              : []).map(({ color, text }, index) => (
+              <div key={`fact-row-${index}`} className="flex items-start gap-2 leading-relaxed">
+                <span className="shrink-0 mt-[0.15em]" style={{ color }}>
+                  •
+                </span>
+                <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                  {text}
+                </p>
+              </div>
+            ))
+          )}
         </div>
 
         <div
@@ -885,115 +1442,155 @@ function PetProfileCard({
             </p>
           </div>
 
-          {[
-            ...(pet.comments.length
-              ? pet.comments.map((comment) =>
-                  comment.author ? `${comment.author}: ${comment.text}` : comment.text
-                )
-              : [
-                  `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
-                  `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
-                  `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
-                ]),
-          ].map((text, index) => (
-            <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
-              <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>
-                •
-              </span>
-              <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                {text}
-              </p>
-            </div>
-          ))}
+          {isEditMode ? (
+            <p
+              className="text-gray-700 leading-relaxed"
+              contentEditable
+              suppressContentEditableWarning
+              onPointerDown={stopCardFlipFromChild}
+              onBlur={commitComments}
+              style={{
+                fontSize: 'clamp(11px, 1.8vh, 14px)',
+                whiteSpace: 'pre-wrap',
+                outline: '1px dashed rgba(107, 114, 128, 0.35)',
+                borderRadius: '8px',
+                padding: '6px 8px',
+                cursor: 'text',
+                minHeight: '88px',
+              }}
+            >
+              {(
+                pet.comments.length
+                  ? pet.comments.map((comment) =>
+                      comment.author ? `${comment.author}: ${comment.text}` : comment.text
+                    )
+                  : ['댓글을 입력해 주세요.']
+              ).join('\n')}
+            </p>
+          ) : (
+            <>
+              {[
+                ...(pet.comments.length
+                  ? pet.comments.map((comment) =>
+                      comment.author ? `${comment.author}: ${comment.text}` : comment.text
+                    )
+                  : [
+                      `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
+                      `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
+                      `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
+                    ]),
+              ].map((text, index) => (
+                <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
+                  <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>
+                    •
+                  </span>
+                  <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                    {text}
+                  </p>
+                </div>
+              ))}
 
-          <button
-            type="button"
-            onPointerDown={stopCardFlipFromChild}
-            onPointerUp={stopCardFlipFromChild}
-            onPointerCancel={stopCardFlipFromChild}
-            onClick={stopCardFlipFromChild}
-            className="w-full rounded-2xl text-white"
-            style={{
-              marginTop: 'clamp(10px, 1.5vh, 16px)',
-              background: 'linear-gradient(90deg, #a855f7 0%, #ec4899 100%)',
-              boxShadow: '0 8px 18px rgba(168, 85, 247, 0.25)',
-              padding: 'clamp(10px, 1.4vh, 14px)',
-              minHeight: 'clamp(42px, 6.2vh, 52px)',
-              fontSize: 'clamp(13px, 2vh, 16px)',
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              columnGap: '8px',
-            }}
-          >
-            <MessageCircle
-              className="shrink-0"
-              style={{ width: 'clamp(15px, 2.2vh, 18px)', height: 'clamp(15px, 2.2vh, 18px)' }}
-            />
-            <span>댓글 작성</span>
-          </button>
+              <button
+                type="button"
+                onPointerDown={stopCardFlipFromChild}
+                onPointerUp={stopCardFlipFromChild}
+                onPointerCancel={stopCardFlipFromChild}
+                onClick={stopCardFlipFromChild}
+                className="w-full rounded-2xl text-white"
+                style={{
+                  marginTop: 'clamp(10px, 1.5vh, 16px)',
+                  background: commentGradient,
+                  boxShadow: `0 8px 18px ${withAlpha(pointColor, 0.26)}`,
+                  padding: 'clamp(10px, 1.4vh, 14px)',
+                  minHeight: 'clamp(42px, 6.2vh, 52px)',
+                  fontSize: 'clamp(13px, 2vh, 16px)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  columnGap: '8px',
+                }}
+              >
+                <MessageCircle
+                  className="shrink-0"
+                  style={{ width: 'clamp(15px, 2.2vh, 18px)', height: 'clamp(15px, 2.2vh, 18px)' }}
+                />
+                <span>댓글 작성</span>
+              </button>
+            </>
+          )}
         </div>
+        {!isEditMode && (
+          <>
+            <button
+              type="button"
+              onPointerDown={stopCardFlipFromChild}
+              onPointerUp={stopCardFlipFromChild}
+              onPointerCancel={stopCardFlipFromChild}
+              onClick={handleShareProfile}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <Share2
+                className="shrink-0"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>프로필 공유하기</span>
+            </button>
 
-        <button
-          type="button"
-          onPointerDown={stopCardFlipFromChild}
-          onPointerUp={stopCardFlipFromChild}
-          onPointerCancel={stopCardFlipFromChild}
-          onClick={handleShareProfile}
-          className="w-full rounded-2xl text-gray-700"
-          style={{
-            background: baseBg,
-            boxShadow: swappedInsetButtonShadow,
-            padding: 'clamp(10px, 1.5vh, 16px)',
-            minHeight: 'clamp(46px, 6.8vh, 56px)',
-            fontSize: 'clamp(13px, 2vh, 16px)',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            columnGap: '8px',
-          }}
-        >
-          <Share2
-            className="text-purple-500 shrink-0"
-            style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-          />
-          <span>프로필 공유하기</span>
-        </button>
+            <button
+              type="button"
+              disabled={isSavingImage}
+              onPointerDown={stopCardFlipFromChild}
+              onPointerUp={stopCardFlipFromChild}
+              onPointerCancel={stopCardFlipFromChild}
+              onClick={handleSaveImage}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                opacity: isSavingImage ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <Download
+                className="shrink-0"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>{isSavingImage ? '이미지 생성 중...' : '이미지로 저장'}</span>
+            </button>
 
-        <button
-          type="button"
-          disabled={isSavingImage}
-          onPointerDown={stopCardFlipFromChild}
-          onPointerUp={stopCardFlipFromChild}
-          onPointerCancel={stopCardFlipFromChild}
-          onClick={handleSaveImage}
-          className="w-full rounded-2xl text-gray-700"
-          style={{
-            background: baseBg,
-            boxShadow: swappedInsetButtonShadow,
-            padding: 'clamp(10px, 1.5vh, 16px)',
-            minHeight: 'clamp(46px, 6.8vh, 56px)',
-            fontSize: 'clamp(13px, 2vh, 16px)',
-            fontWeight: 600,
-            opacity: isSavingImage ? 0.6 : 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            columnGap: '8px',
-          }}
-        >
-          <Download
-            className="text-purple-500 shrink-0"
-            style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-          />
-          <span>{isSavingImage ? '이미지 생성 중...' : '이미지로 저장'}</span>
-        </button>
-
-        <p className="text-center text-gray-500 font-medium" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
-          탭 또는 좌우 스와이프로 앞면으로 돌아오세요.
-        </p>
+            <p className="text-center text-gray-500 font-medium" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
+              탭 또는 좌우 스와이프로 앞면으로 돌아오세요.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1025,6 +1622,7 @@ function PetProfileCard({
             onWheel={handleWheel}
             onClick={handleCardClick}
             onKeyDown={(event) => {
+              if (isEditMode) return;
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 handleToggleFlip();
@@ -1042,7 +1640,7 @@ function PetProfileCard({
               willChange: 'transform',
               touchAction: 'pan-y',
               userSelect: 'none',
-              cursor: 'pointer',
+              cursor: isEditMode ? 'default' : 'pointer',
             }}
           >
             <div
@@ -1104,6 +1702,76 @@ function PetProfileCard({
             </div>
           </div>
         </div>
+        {isEditMode && (
+          <>
+            <button
+              type="button"
+              onPointerDown={stopCardFlipFromChild}
+              onPointerUp={stopCardFlipFromChild}
+              onPointerCancel={stopCardFlipFromChild}
+              onClick={(event) => {
+                stopCardFlipFromChild(event);
+                setIsFlipped(false);
+              }}
+              aria-label="앞면 보기"
+              style={{
+                position: 'absolute',
+                left: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '38px',
+                height: '38px',
+                borderRadius: '999px',
+                border: '1px solid rgba(255, 255, 255, 0.7)',
+                background: 'rgba(255, 255, 255, 0.35)',
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+                color: '#374151',
+                fontSize: '22px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 40,
+              }}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onPointerDown={stopCardFlipFromChild}
+              onPointerUp={stopCardFlipFromChild}
+              onPointerCancel={stopCardFlipFromChild}
+              onClick={(event) => {
+                stopCardFlipFromChild(event);
+                setIsFlipped(true);
+              }}
+              aria-label="뒷면 보기"
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '38px',
+                height: '38px',
+                borderRadius: '999px',
+                border: '1px solid rgba(255, 255, 255, 0.7)',
+                background: 'rgba(255, 255, 255, 0.35)',
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+                color: '#374151',
+                fontSize: '22px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 40,
+              }}
+            >
+              ›
+            </button>
+          </>
+        )}
       </div>
     </>
   );
@@ -1124,7 +1792,16 @@ function CustomCursor({ x, y, isVisible }: { x: number; y: number; isVisible: bo
   );
 }
 
-export default function PetProfileScene({ petData }: { petData: PetProfileData }) {
+export default function PetProfileScene({
+  petData,
+  mode = 'view',
+  onPetChange,
+  editLink,
+  onSaveRequest,
+  isSaving = false,
+  onPhotoUploadRequest,
+  isUploadingPhoto = false,
+}: PetProfileSceneProps) {
   const [mousePosition, setMousePosition] = useState({ x: 300, y: 400 });
   const [isMouseInside, setIsMouseInside] = useState(false);
   const [isMobileInput, setIsMobileInput] = useState(false);
@@ -1133,11 +1810,9 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
   const [isMotionEnabled, setIsMotionEnabled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const motionBaselineRef = useRef<{ beta: number; gamma: number } | null>(null);
-  const isFemale = petData.gender === '암컷';
-  const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
-  const buttonShadow = isFemale
-    ? '8px 8px 16px #dbc1ce, -8px -8px 16px #fff8fb'
-    : '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff';
+  const isEditMode = mode === 'edit';
+  const baseBg = resolveCardBackground(petData.gender, petData.backgroundColor);
+  const buttonShadow = createNeumorphismPalette(baseBg).button;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1171,7 +1846,7 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
   }, [isMobileInput]);
 
   useEffect(() => {
-    if (isMobileInput) return;
+    if (isMobileInput || isEditMode) return;
     const handleMouseMove = (e: MouseEvent) => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -1202,10 +1877,10 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
         container.removeEventListener('mouseleave', handleMouseLeave);
       };
     }
-  }, [isMobileInput]);
+  }, [isMobileInput, isEditMode]);
 
   useEffect(() => {
-    if (!isMobileInput || !isMotionEnabled) return;
+    if (!isMobileInput || !isMotionEnabled || isEditMode) return;
     motionBaselineRef.current = null;
 
     const handleOrientation = (event: DeviceOrientationEvent) => {
@@ -1242,7 +1917,7 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation, true);
     };
-  }, [isMobileInput, isMotionEnabled]);
+  }, [isMobileInput, isMotionEnabled, isEditMode]);
 
   const handleEnableMotion = async () => {
     try {
@@ -1275,9 +1950,9 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
     <div
       ref={containerRef}
       className="relative w-full h-screen overflow-hidden"
-      style={{ cursor: 'none', background: baseBg }}
+      style={{ cursor: isEditMode ? 'default' : 'none', background: baseBg }}
     >
-      {isMobileInput && needsMotionPermission && (
+      {!isEditMode && isMobileInput && needsMotionPermission && (
         <div className="absolute top-4 right-4 z-50">
           <button
             type="button"
@@ -1295,8 +1970,19 @@ export default function PetProfileScene({ petData }: { petData: PetProfileData }
       )}
       <div className="flex items-center justify-center w-full h-full">
         <BackgroundLayer mouseX={mousePosition.x} mouseY={mousePosition.y} />
-        <PetProfileCard mouseX={mousePosition.x} mouseY={mousePosition.y} pet={petData} />
-        {!isMobileInput && (
+        <PetProfileCard
+          mouseX={mousePosition.x}
+          mouseY={mousePosition.y}
+          pet={petData}
+          mode={mode}
+          onPetChange={onPetChange}
+          editLink={editLink}
+          onSaveRequest={onSaveRequest}
+          isSaving={isSaving}
+          onPhotoUploadRequest={onPhotoUploadRequest}
+          isUploadingPhoto={isUploadingPhoto}
+        />
+        {!isMobileInput && !isEditMode && (
           <CustomCursor x={mousePosition.x} y={mousePosition.y} isVisible={isMouseInside} />
         )}
       </div>

@@ -5,6 +5,8 @@ export type PetRecord = {
   slug: string;
   share_token?: string | null;
   pet_kind?: string | null;
+  background_color?: string | null;
+  accent_color?: string | null;
   owner_claim_hash?: string | null;
   name: string;
   birth_date?: string | null;
@@ -59,6 +61,8 @@ export const toPetProfile = (record: PetRecord): PetProfileData => ({
   slug: record.slug,
   shareToken: record.share_token ?? '',
   petKind: toPetKind(record.pet_kind),
+  backgroundColor: record.background_color ?? '',
+  accentColor: record.accent_color ?? '',
   name: record.name,
   birthDate: record.birth_date ?? '',
   breed: record.breed,
@@ -80,6 +84,8 @@ export const toPetRecord = (pet: PetProfileData): PetRecordInput => ({
   slug: pet.slug,
   share_token: pet.shareToken,
   pet_kind: toPetKind(pet.petKind),
+  background_color: typeof pet.backgroundColor === 'string' ? pet.backgroundColor : '',
+  accent_color: typeof pet.accentColor === 'string' ? pet.accentColor : '',
   name: pet.name,
   birth_date: pet.birthDate ?? '',
   breed: pet.breed,

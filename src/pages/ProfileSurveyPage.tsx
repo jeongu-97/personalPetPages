@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { buildDefaultFunFacts } from '../lib/funFacts';
 import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
 import { savePetOwnerClaim } from '../lib/petOwnerClaim';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
@@ -281,6 +282,12 @@ export default function ProfileSurveyPage() {
     const breed = form.breed.trim() || kind;
     const generatedSlug = normalizeSlug(form.name);
     const fallbackSlug = `pet-${Date.now().toString(36).slice(-6)}`;
+    const autoFunFacts = buildDefaultFunFacts({
+      name: form.name.trim(),
+      favoriteToy: form.favoriteToy.trim(),
+      personality: form.personality.trim(),
+      birthDate: form.birthDate,
+    });
 
     return {
       ...emptyPetProfile,
@@ -296,6 +303,7 @@ export default function ProfileSurveyPage() {
       location: form.location.trim(),
       favoriteFood: form.favoriteFood.trim(),
       favoriteToy: form.favoriteToy.trim(),
+      funFacts: autoFunFacts,
       personality: form.personality.trim(),
       ownerContact: form.ownerContact.trim(),
       mainPhoto: form.mainPhoto,

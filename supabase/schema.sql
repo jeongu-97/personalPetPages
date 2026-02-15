@@ -5,6 +5,8 @@ create table if not exists public.pets (
   slug text unique not null,
   share_token text unique not null default encode(gen_random_bytes(16), 'hex'),
   pet_kind text not null default '',
+  background_color text not null default '',
+  accent_color text not null default '',
   creator_user_id uuid references auth.users(id) on delete set null,
   owner_claim_hash text,
   name text not null default '',
@@ -28,6 +30,8 @@ create table if not exists public.pets (
 alter table public.pets
   add column if not exists share_token text,
   add column if not exists pet_kind text not null default '',
+  add column if not exists background_color text not null default '',
+  add column if not exists accent_color text not null default '',
   add column if not exists creator_user_id uuid references auth.users(id) on delete set null,
   add column if not exists owner_claim_hash text,
   add column if not exists birth_date text not null default '',
@@ -145,6 +149,30 @@ grant execute on function public.claim_pet_ownership(text, text) to authenticate
 
 do $$
 begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pets'
+      and column_name = 'background_color'
+  ) then
+    update public.pets
+    set background_color = ''
+    where background_color is null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'pets'
+      and column_name = 'accent_color'
+  ) then
+    update public.pets
+    set accent_color = ''
+    where accent_color is null;
+  end if;
+
   if exists (
     select 1
     from information_schema.columns

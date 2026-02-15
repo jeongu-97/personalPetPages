@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage';
 import NotFoundPage from './pages/NotFoundPage';
 import PetProfilePage from './pages/PetProfilePage';
 import ProfileSurveyPage from './pages/ProfileSurveyPage';
+import UserEditPage from './pages/UserEditPage';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/start" element={<ProfileSurveyPage />} />
       <Route path="/admin" element={<AdminPage />} />
+      <Route path="/edit/:slug" element={<UserEditPage />} />
       <Route path="/:slug" element={<PetProfilePage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
