@@ -54,6 +54,18 @@ function PetProfileCard({
   pet,
 }: ParallaxProps & { pet: PetProfileData }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const pointerStartRef = useRef<{
+    x: number;
+    y: number;
+    id: number;
+    time: number;
+  } | null>(null);
+  const swipeTriggeredRef = useRef(false);
+  const wheelLockRef = useRef<number | null>(null);
+  const flipTimerRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [isFlipping, setIsFlipping] = useState(false);
   const isFemale = pet.gender === '암컷';
   const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
   const shadows = isFemale
@@ -91,6 +103,271 @@ function PetProfileCard({
   };
 
   const rotation = calculateRotation();
+  const swipeDistanceThreshold = 18;
+  const tapMaxDistance = 8;
+  const tapMaxDuration = 280;
+
+  useEffect(() => {
+    return () => {
+      if (flipTimerRef.current !== null) {
+        window.clearTimeout(flipTimerRef.current);
+      }
+      if (wheelLockRef.current !== null) {
+        window.clearTimeout(wheelLockRef.current);
+      }
+    };
+  }, []);
+
+  const handleToggleFlip = () => {
+    if (isFlipping) return;
+    setIsFlipping(true);
+    setIsFlipped((prev) => !prev);
+    if (flipTimerRef.current !== null) {
+      window.clearTimeout(flipTimerRef.current);
+    }
+    flipTimerRef.current = window.setTimeout(() => {
+      setIsFlipping(false);
+      flipTimerRef.current = null;
+    }, 520);
+  };
+
+  const handlePointerDown = (event: any) => {
+    // 왼쪽 버튼/터치만 처리
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (isFlipping) return;
+    pointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      id: event.pointerId,
+      time: event.timeStamp,
+    };
+    swipeTriggeredRef.current = false;
+  };
+
+  const handlePointerMove = (event: any) => {
+    const start = pointerStartRef.current;
+    if (!start || start.id !== event.pointerId || swipeTriggeredRef.current) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+
+    if (
+      Math.abs(deltaX) >= swipeDistanceThreshold &&
+      Math.abs(deltaX) > Math.abs(deltaY) + 6 &&
+      !isFlipping
+    ) {
+      swipeTriggeredRef.current = true;
+      handleToggleFlip();
+    }
+  };
+
+  const handlePointerUp = (event: any) => {
+    const start = pointerStartRef.current;
+    if (!start || start.id !== event.pointerId) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    const duration = event.timeStamp - start.time;
+
+    if (!swipeTriggeredRef.current && Math.abs(deltaX) <= tapMaxDistance && Math.abs(deltaY) <= tapMaxDistance && duration <= tapMaxDuration) {
+      handleToggleFlip();
+      suppressClickRef.current = true;
+    }
+
+    pointerStartRef.current = null;
+    swipeTriggeredRef.current = false;
+  };
+
+  const handlePointerCancel = (event: any) => {
+    const start = pointerStartRef.current;
+    if (!start || start.id !== event.pointerId) return;
+    pointerStartRef.current = null;
+    swipeTriggeredRef.current = false;
+  };
+
+  const handleWheel = (event: any) => {
+    if (isFlipping || wheelLockRef.current !== null) return;
+    const absX = Math.abs(event.deltaX);
+    const absY = Math.abs(event.deltaY);
+
+    if (absX > absY + 2 && absX > 18) {
+      event.preventDefault();
+      handleToggleFlip();
+      wheelLockRef.current = window.setTimeout(() => {
+        wheelLockRef.current = null;
+      }, 260);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (isFlipping) return;
+    handleToggleFlip();
+  };
+
+  const frontCardContent = (
+    <>
+      <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
+        <ImageWithFallback src={pet.mainPhoto} alt={pet.name} className="w-full h-full object-cover" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
+          }}
+        />
+      </div>
+
+      <div
+        className="overflow-y-auto flex-1"
+        style={{
+          padding: 'clamp(12px, 2vh, 24px) clamp(16px, 2.5vw, 24px)',
+        }}
+      >
+        <div className="space-y-[clamp(8px,1.5vh,16px)]">
+          <div className="flex items-end justify-center gap-3">
+            <h1 className="mb-1" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
+              {pet.name}
+            </h1>
+            <p className="text-gray-600" style={{ fontSize: 'clamp(14px, 2.2vh, 20px)' }}>
+              {pet.breed}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
+            {[
+              { icon: Calendar, label: '나이', value: formatAge(pet.age) },
+              { icon: Weight, label: '체중', value: formatWeight(pet.weight) },
+              { icon: Ruler, label: '성별', value: pet.gender },
+              { icon: MapPin, label: '위치', value: pet.location },
+            ].map(({ icon: Icon, label, value }) => (
+              <div
+                key={label}
+                className="flex items-center gap-2 text-gray-700 rounded-2xl"
+                style={{
+                  background: baseBg,
+                  boxShadow: shadows.inset,
+                  padding: 'clamp(8px, 1.2vh, 16px)',
+                }}
+              >
+                <Icon
+                  className="text-purple-500 shrink-0"
+                  style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+                />
+                <div className="min-w-0">
+                  <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                    {label}
+                  </div>
+                  <div className="font-medium truncate" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                    {value}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="rounded-2xl"
+            style={{
+              background: 'rgba(255, 255, 255, 0.5)',
+              backdropFilter: 'blur(10px)',
+              border: '2px solid rgba(255, 255, 255, 0.7)',
+              boxShadow: shadows.glass,
+              padding: 'clamp(10px, 1.5vh, 20px)',
+            }}
+          >
+            <div className="flex items-start gap-2 text-gray-700">
+              <Heart
+                className="text-red-500 mt-0.5 shrink-0"
+                style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+              />
+              <div className="min-w-0">
+                <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                  성격
+                </div>
+                <p className="leading-relaxed" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                  {pet.personality}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="rounded-2xl"
+            style={{
+              background: 'rgba(255, 255, 255, 0.5)',
+              backdropFilter: 'blur(10px)',
+              border: '2px solid rgba(255, 255, 255, 0.7)',
+              boxShadow: shadows.glass,
+              padding: 'clamp(10px, 1.5vh, 20px)',
+            }}
+          >
+            <div className="flex items-start gap-2 text-gray-700">
+              <Phone
+                className="text-green-500 mt-0.5 shrink-0"
+                style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+              />
+              <div className="min-w-0">
+                <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+                  보호자 연락처
+                </div>
+                <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.ownerContact}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const backCardContent = (
+    <div className="overflow-y-auto flex-1">
+      <div className="space-y-[clamp(8px,1.5vh,16px)] p-[clamp(12px,2vh,24px)]">
+        <p style={{ fontSize: 'clamp(18px, 3vh, 28px)', textAlign: 'center' }}>카드 뒷면</p>
+        <div
+          className="rounded-2xl"
+          style={{
+            background: 'rgba(255, 255, 255, 0.5)',
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(255, 255, 255, 0.7)',
+            boxShadow: shadows.glass,
+            padding: 'clamp(10px, 1.5vh, 20px)',
+          }}
+        >
+          <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+            좋아하는 간식
+          </div>
+          <p className="leading-relaxed text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+            {pet.favoriteFood || '입력되지 않았습니다.'}
+          </p>
+        </div>
+
+        <div
+          className="rounded-2xl"
+          style={{
+            background: 'rgba(255, 255, 255, 0.5)',
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(255, 255, 255, 0.7)',
+            boxShadow: shadows.glass,
+            padding: 'clamp(10px, 1.5vh, 20px)',
+          }}
+        >
+          <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
+            좋아하는 장난감
+          </div>
+          <p className="leading-relaxed text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+            {pet.favoriteToy || '입력되지 않았습니다.'}
+          </p>
+        </div>
+
+        <p className="text-center text-gray-500" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
+          탭 또는 좌우 스와이프로 앞면으로 돌아오세요.
+        </p>
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -108,152 +385,76 @@ function PetProfileCard({
         <div
           className="rounded-3xl mx-3"
           style={{
+            position: 'relative',
             background: baseBg,
             boxShadow: shadows.outer,
             padding: 'clamp(4px, 0.4vh, 8px)',
             maxHeight: '94vh',
+            transformStyle: 'preserve-3d',
+            WebkitTransformStyle: 'preserve-3d',
           }}
         >
           <div
-            className="rounded-3xl overflow-hidden flex flex-col"
+            className="rounded-3xl overflow-hidden relative"
+            role="button"
+            tabIndex={0}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onWheel={handleWheel}
+            onClick={handleCardClick}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleToggleFlip();
+              }
+            }}
             style={{
               background: 'rgba(255, 255, 255, 0.7)',
-              backdropFilter: 'blur(20px)',
               border: '2px solid rgba(255, 255, 255, 0.8)',
               maxHeight: '92vh',
+              height: 'min(92vh, 820px)',
+              position: 'relative',
+              transformStyle: 'preserve-3d',
+              WebkitTransformStyle: 'preserve-3d',
+              perspective: '1200px',
+              touchAction: 'pan-y',
+              userSelect: 'none',
+              cursor: 'pointer',
             }}
           >
-            <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
-              <ImageWithFallback src={pet.mainPhoto} alt={pet.name} className="w-full h-full object-cover" />
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
-                }}
-              />
-            </div>
-
             <div
-              className="overflow-y-auto flex-1"
+              className="relative h-full w-full"
               style={{
-                padding: 'clamp(12px, 2vh, 24px) clamp(16px, 2.5vw, 24px)',
+                transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+                transformStyle: 'preserve-3d',
+                WebkitTransformStyle: 'preserve-3d',
+                willChange: 'transform',
               }}
             >
-              <div className="space-y-[clamp(8px,1.5vh,16px)]">
-                <div className="flex items-end justify-center gap-3">
-                  <h1 className="mb-1" style={{ fontSize: 'clamp(24px, 4vh, 36px)' }}>
-                    {pet.name}
-                  </h1>
-                  <p className="text-gray-600" style={{ fontSize: 'clamp(14px, 2.2vh, 20px)' }}>
-                    {pet.breed}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.5vh, 16px)' }}>
-                  {[
-                    { icon: Calendar, label: '나이', value: formatAge(pet.age) },
-                    { icon: Weight, label: '체중', value: formatWeight(pet.weight) },
-                    { icon: Ruler, label: '성별', value: pet.gender },
-                    { icon: MapPin, label: '위치', value: pet.location },
-                  ].map(({ icon: Icon, label, value }) => (
-                    <div
-                      key={label}
-                      className="flex items-center gap-2 text-gray-700 rounded-2xl"
-                      style={{
-                        background: baseBg,
-                        boxShadow: shadows.inset,
-                        padding: 'clamp(8px, 1.2vh, 16px)',
-                      }}
-                    >
-                      <Icon
-                        className="text-purple-500 shrink-0"
-                        style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-gray-500" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                          {label}
-                        </div>
-                        <div className="font-medium truncate" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                          {value}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div
-                  className="rounded-2xl"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.5)',
-                    backdropFilter: 'blur(10px)',
-                    border: '2px solid rgba(255, 255, 255, 0.7)',
-                    boxShadow: shadows.glass,
-                    padding: 'clamp(10px, 1.5vh, 20px)',
-                  }}
-                >
-                  <div className="flex items-start gap-2 text-gray-700">
-                    <Heart
-                      className="text-red-500 mt-0.5 shrink-0"
-                      style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        성격
-                      </div>
-                      <p className="leading-relaxed" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                        {pet.personality}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="rounded-2xl"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.5)',
-                    backdropFilter: 'blur(10px)',
-                    border: '2px solid rgba(255, 255, 255, 0.7)',
-                    boxShadow: shadows.glass,
-                    padding: 'clamp(10px, 1.5vh, 20px)',
-                  }}
-                >
-                  <div className="flex items-start gap-2 text-gray-700">
-                    <Phone
-                      className="text-green-500 mt-0.5 shrink-0"
-                      style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        보호자 연락처
-                      </div>
-                      <p style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>{pet.ownerContact}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2" style={{ gap: 'clamp(8px, 1.2vh, 12px)' }}>
-                  {[
-                    { label: '좋아하는 간식', value: pet.favoriteFood },
-                    { label: '좋아하는 장난감', value: pet.favoriteToy },
-                  ].map(({ label, value }) => (
-                    <div
-                      key={label}
-                      className="rounded-2xl"
-                      style={{
-                        background: baseBg,
-                        boxShadow: shadows.small,
-                        padding: 'clamp(10px, 1.5vh, 16px)',
-                      }}
-                    >
-                      <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
-                        {label}
-                      </div>
-                      <div className="font-medium text-gray-800" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                        {value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div
+                className="absolute inset-0 flex flex-col"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.78)',
+                  transform: 'translateZ(1px)',
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                }}
+              >
+                {frontCardContent}
+              </div>
+              <div
+                className="absolute inset-0 flex flex-col"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.78)',
+                  transform: 'rotateY(180deg) translateZ(1px)',
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                }}
+              >
+                {backCardContent}
               </div>
             </div>
           </div>
