@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Session } from '@supabase/supabase-js';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
 import { PetProfileData } from '../types/pet';
 import { PetRecord, toPetProfile } from '../lib/petData';
+import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
+import { supabase } from '../lib/supabaseClient';
 
 type LoadState = 'loading' | 'ready' | 'not_found' | 'error';
 
@@ -14,6 +17,8 @@ export default function PetProfilePage() {
   const [state, setState] = useState<LoadState>('loading');
   const [pet, setPet] = useState<PetProfileData | null>(null);
   const [isCreationGuideOpen, setIsCreationGuideOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isStartingLogin, setIsStartingLogin] = useState(false);
   const searchParams = new URLSearchParams(location.search);
   const isCreatedFromSurvey = searchParams.get('created') === '1';
   const token = searchParams.get('token') ?? '';
@@ -50,6 +55,77 @@ export default function PetProfilePage() {
   }, [slug, location.search]);
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const claimOwnershipForCurrentSlug = async (targetSlug: string) => {
+    const claim = getPetOwnerClaims().find((item) => item.slug === targetSlug);
+    if (!claim) return;
+
+    const { data, error } = await supabase.rpc('claim_pet_ownership', {
+      p_slug: claim.slug,
+      p_claim_token: claim.token,
+    });
+
+    if (!error && data === true) {
+      removePetOwnerClaim(claim.slug);
+    }
+  };
+
+  const goToEditPage = (targetSlug: string, targetToken: string) => {
+    navigate(`/edit/${encodeURIComponent(targetSlug)}?token=${encodeURIComponent(targetToken)}`);
+  };
+
+  const handleEditRequest = async () => {
+    if (!slug || !token) return;
+    if (typeof window === 'undefined') return;
+
+    if (!session) {
+      setIsStartingLogin(true);
+      const nextSearchParams = new URLSearchParams(location.search);
+      nextSearchParams.set('post_login', 'edit');
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'kakao',
+        options: {
+          redirectTo: `${window.location.origin}${location.pathname}?${nextSearchParams.toString()}`,
+        },
+      });
+
+      if (error) {
+        setIsStartingLogin(false);
+      }
+      return;
+    }
+
+    await claimOwnershipForCurrentSlug(slug);
+    goToEditPage(slug, token);
+  };
+
+  useEffect(() => {
+    if (!session || !slug || !token) return;
+    if (searchParams.get('post_login') !== 'edit') return;
+
+    const proceed = async () => {
+      await claimOwnershipForCurrentSlug(slug);
+      goToEditPage(slug, token);
+    };
+
+    proceed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, slug, token, location.search]);
+
+  useEffect(() => {
     if (!(state === 'ready' && isCreatedFromSurvey)) return;
     setIsCreationGuideOpen(true);
   }, [state, isCreatedFromSurvey]);
@@ -82,7 +158,7 @@ export default function PetProfilePage() {
     }`;
     return (
       <>
-        <PetProfileScene petData={pet} editLink={editLink} />
+        <PetProfileScene petData={pet} editLink={editLink} onEditRequest={handleEditRequest} />
         {isCreationGuideOpen && (
           <div
             style={{
@@ -123,7 +199,7 @@ export default function PetProfilePage() {
                 }}
               >
                 <p className="text-gray-600" style={{ fontSize: '15px', lineHeight: 1.5 }}>
-                  지금 링크는 바로 공유할 수 있어요. 수정은 로그인 후 관리자 페이지에서 가능합니다.
+                  지금 링크는 바로 공유할 수 있어요. 수정은 로그인 후 이 프로필에서 바로 가능합니다.
                 </p>
                 <p className="text-gray-500 mt-1.5" style={{ fontSize: '13px', lineHeight: 1.5 }}>
                   지금 만든 브라우저에서 로그인하면 자동으로 편집 권한이 연결돼요.
@@ -131,18 +207,21 @@ export default function PetProfilePage() {
               </div>
 
               <div className="mt-5 flex flex-col gap-2">
-                <Link
-                  to="/admin"
+                <button
+                  type="button"
+                  onClick={handleEditRequest}
+                  disabled={isStartingLogin}
                   className="inline-flex items-center justify-center rounded-2xl px-4 text-base font-semibold"
                   style={{
                     minHeight: '56px',
                     color: '#5f4124',
                     background: 'linear-gradient(90deg, #f4d88f 0%, #edc17a 100%)',
                     boxShadow: '8px 8px 16px #d9c793, -8px -8px 16px #fff9ea',
+                    opacity: isStartingLogin ? 0.7 : 1,
                   }}
                 >
-                  로그인하고 편집하기
-                </Link>
+                  {isStartingLogin ? '카카오 로그인 이동 중...' : '로그인하고 편집하기'}
+                </button>
                 <button
                   type="button"
                   onClick={closeCreationGuide}

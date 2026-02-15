@@ -109,6 +109,7 @@ export default function AdminPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [isKakaoSigningIn, setIsKakaoSigningIn] = useState(false);
   const [pets, setPets] = useState<PetProfileData[]>([]);
   const [form, setForm] = useState<PetProfileData>(emptyPetProfile);
   const [status, setStatus] = useState<string | null>(null);
@@ -282,6 +283,24 @@ export default function AdminPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
+  };
+
+  const handleKakaoLogin = async () => {
+    if (typeof window === 'undefined') return;
+    setAuthMessage(null);
+    setIsKakaoSigningIn(true);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'kakao',
+      options: {
+        redirectTo: `${window.location.origin}/admin`,
+      },
+    });
+
+    if (error) {
+      setAuthMessage(error.message);
+      setIsKakaoSigningIn(false);
+    }
   };
 
   const handleSelectPet = (pet: PetProfileData) => {
@@ -546,6 +565,23 @@ export default function AdminPage() {
               로그인
             </button>
           </form>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleKakaoLogin}
+              disabled={isKakaoSigningIn}
+              className="w-full rounded-2xl px-4 py-3 text-sm font-semibold"
+              style={{
+                color: '#3b2f00',
+                background: '#FEE500',
+                boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+                opacity: isKakaoSigningIn ? 0.7 : 1,
+                cursor: isKakaoSigningIn ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isKakaoSigningIn ? '카카오 로그인 이동 중...' : '카카오로 로그인'}
+            </button>
+          </div>
           {authMessage && <p className="text-center text-red-500 mt-3">{authMessage}</p>}
         </div>
       </div>

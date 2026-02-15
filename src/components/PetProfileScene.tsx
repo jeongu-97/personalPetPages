@@ -16,6 +16,7 @@ type PetProfileSceneProps = {
   mode?: SceneMode;
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
+  onEditRequest?: () => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -181,6 +182,7 @@ function PetProfileCard({
   mode,
   onPetChange,
   editLink,
+  onEditRequest,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -190,6 +192,7 @@ function PetProfileCard({
   mode: SceneMode;
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
+  onEditRequest?: () => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -526,6 +529,10 @@ function PetProfileCard({
   const goToEditPage = (event: any) => {
     stopCardFlipFromChild(event);
     setIsEditMenuOpen(false);
+    if (onEditRequest) {
+      onEditRequest();
+      return;
+    }
     if (typeof window === 'undefined') return;
     if (editLink) {
       window.location.href = editLink;
@@ -1797,6 +1804,7 @@ export default function PetProfileScene({
   mode = 'view',
   onPetChange,
   editLink,
+  onEditRequest,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -1977,6 +1985,7 @@ export default function PetProfileScene({
           mode={mode}
           onPetChange={onPetChange}
           editLink={editLink}
+          onEditRequest={onEditRequest}
           onSaveRequest={onSaveRequest}
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}
