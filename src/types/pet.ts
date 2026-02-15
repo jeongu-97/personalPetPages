@@ -3,10 +3,13 @@ export interface PetComment {
   text: string;
 }
 
+export type PetKind = '' | 'dog' | 'cat' | 'bird' | 'fish';
+
 export interface PetProfileData {
   id?: string;
   slug: string;
   shareToken: string;
+  petKind?: PetKind;
   name: string;
   birthDate?: string;
   breed: string;
@@ -26,6 +29,7 @@ export interface PetProfileData {
 export const emptyPetProfile: PetProfileData = {
   slug: '',
   shareToken: '',
+  petKind: '',
   name: '',
   birthDate: '',
   breed: '',

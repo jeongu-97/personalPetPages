@@ -11,10 +11,12 @@ import {
   Upload,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { PetRecord, toPetProfile, toPetRecord } from '../lib/petData';
+import { savePetOwnerClaim } from '../lib/petOwnerClaim';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
-import { emptyPetProfile, PetProfileData } from '../types/pet';
+import { supabase } from '../lib/supabaseClient';
+import { emptyPetProfile, PetKind, PetProfileData } from '../types/pet';
 
-type PetKind = '' | 'dog' | 'cat' | 'bird' | 'fish';
 type PetGender = '' | '수컷' | '암컷';
 
 type SurveyForm = {
@@ -23,14 +25,18 @@ type SurveyForm = {
   breed: string;
   birthDate: string;
   gender: PetGender;
+  weight: string;
+  location: string;
+  ownerContact: string;
   mainPhoto: string;
+  mainPhotoFile: File | null;
   mainPhotoFileName: string;
   personality: string;
-  favoriteNotes: string;
-  healthInfo: string;
+  favoriteFood: string;
+  favoriteToy: string;
 };
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 12;
 
 const initialSurveyForm: SurveyForm = {
   name: '',
@@ -38,11 +44,15 @@ const initialSurveyForm: SurveyForm = {
   breed: '',
   birthDate: '',
   gender: '',
+  weight: '',
+  location: '',
+  ownerContact: '',
   mainPhoto: '',
+  mainPhotoFile: null,
   mainPhotoFileName: '',
   personality: '',
-  favoriteNotes: '',
-  healthInfo: '',
+  favoriteFood: '',
+  favoriteToy: '',
 };
 
 const kindOptions: Array<{ value: PetKind; label: string; Icon: typeof Dog }> = [
@@ -59,6 +69,38 @@ const normalizeSlug = (value: string) =>
     .replace(/[^a-z0-9-]/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
+
+const generateToken = () => {
+  if (typeof crypto === 'undefined' || !('getRandomValues' in crypto)) {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+const randomSlugSuffix = () => Math.random().toString(36).slice(2, 6);
+
+const sha256Hex = async (value: string) => {
+  if (typeof crypto === 'undefined' || !('subtle' in crypto)) {
+    throw new Error('hash_unavailable');
+  }
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const normalizeDecimal = (value: string) => {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const [integer, ...rest] = cleaned.split('.');
+  if (!rest.length) return integer;
+  const decimals = rest.join('');
+  return `${integer}.${decimals}`;
+};
+
+const readString = (value: unknown) => (typeof value === 'string' ? value : '');
+const toPetKind = (value: unknown): PetKind =>
+  value === 'dog' || value === 'cat' || value === 'bird' || value === 'fish' ? value : '';
 
 const inferKind = (breed: string): PetKind => {
   const text = breed.toLowerCase();
@@ -126,6 +168,7 @@ export default function ProfileSurveyPage() {
   const [stepIndex, setStepIndex] = useState(0);
   const [form, setForm] = useState<SurveyForm>(initialSurveyForm);
   const [message, setMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isLastStep = stepIndex === TOTAL_STEPS - 1;
   const petName = form.name.trim() || '아이';
@@ -136,13 +179,16 @@ export default function ProfileSurveyPage() {
     if (stepIndex === 2) return Boolean(form.breed.trim());
     if (stepIndex === 3) return Boolean(form.birthDate);
     if (stepIndex === 4) return Boolean(form.gender);
-    if (stepIndex === 5) return true;
-    if (stepIndex === 6) return Boolean(form.personality.trim());
-    if (stepIndex === 7) return Boolean(form.favoriteNotes.trim());
-    return Boolean(form.healthInfo.trim());
+    if (stepIndex === 5) return Boolean(form.weight.trim());
+    if (stepIndex === 6) return Boolean(form.location.trim());
+    if (stepIndex === 7) return Boolean(form.ownerContact.trim());
+    if (stepIndex === 8) return true;
+    if (stepIndex === 9) return Boolean(form.personality.trim());
+    if (stepIndex === 10) return Boolean(form.favoriteFood.trim());
+    return Boolean(form.favoriteToy.trim());
   };
 
-  const isNextDisabled = !isCurrentStepComplete();
+  const isNextDisabled = !isCurrentStepComplete() || isSubmitting;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -154,24 +200,22 @@ export default function ProfileSurveyPage() {
       const draft = JSON.parse(raw) as Partial<PetProfileData>;
       if (!draft || typeof draft !== 'object') return;
 
-      const sourcePersonality = typeof draft.personality === 'string' ? draft.personality : '';
-      const healthMarker = '\n\n건강 정보: ';
-      const markerIndex = sourcePersonality.indexOf(healthMarker);
-      const personality =
-        markerIndex >= 0 ? sourcePersonality.slice(0, markerIndex).trim() : sourcePersonality;
-      const healthInfo =
-        markerIndex >= 0 ? sourcePersonality.slice(markerIndex + healthMarker.length).trim() : '';
-
       setForm({
         ...initialSurveyForm,
-        name: draft.name ?? '',
-        petKind: inferKind(draft.breed ?? ''),
-        breed: draft.breed ?? '',
+        name: readString(draft.name),
+        petKind: toPetKind(draft.petKind) || inferKind(readString(draft.breed)),
+        breed: readString(draft.breed),
+        birthDate: readString(draft.birthDate),
         gender: draft.gender === '수컷' || draft.gender === '암컷' ? draft.gender : '',
-        mainPhoto: draft.mainPhoto ?? '',
-        personality,
-        favoriteNotes: draft.favoriteFood ?? '',
-        healthInfo,
+        weight: readString(draft.weight),
+        location: readString(draft.location),
+        ownerContact: readString(draft.ownerContact),
+        mainPhoto: readString(draft.mainPhoto),
+        mainPhotoFile: null,
+        mainPhotoFileName: '',
+        personality: readString(draft.personality),
+        favoriteFood: readString(draft.favoriteFood),
+        favoriteToy: readString(draft.favoriteToy),
       });
     } catch {
       window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
@@ -184,10 +228,13 @@ export default function ProfileSurveyPage() {
     if (stepIndex === 2) return '품종이 무엇인가요?';
     if (stepIndex === 3) return '생일이 언제인가요?';
     if (stepIndex === 4) return '성별을 알려주세요';
-    if (stepIndex === 5) return '사진을 올려주세요';
-    if (stepIndex === 6) return `${petName}(이)는\n어떤 성격인가요?`;
-    if (stepIndex === 7) return `${petName}(이)가\n좋아하는 것은요?`;
-    return '건강 정보를 알려주세요';
+    if (stepIndex === 5) return `${petName}(이)의\n몸무게는 얼마인가요?`;
+    if (stepIndex === 6) return `${petName}(이)가\n주로 있는 위치는 어디인가요?`;
+    if (stepIndex === 7) return '보호자 연락처를\n알려주세요';
+    if (stepIndex === 8) return '사진을 올려주세요';
+    if (stepIndex === 9) return `${petName}(이)는\n어떤 성격인가요?`;
+    if (stepIndex === 10) return `${petName}(이)가\n좋아하는 간식은요?`;
+    return `${petName}(이)가\n좋아하는 장난감은요?`;
   })();
 
   const currentSubtitle = (() => {
@@ -196,10 +243,13 @@ export default function ProfileSurveyPage() {
     if (stepIndex === 2) return '정확하지 않아도 괜찮아요';
     if (stepIndex === 3) return '대략적인 날짜도 좋아요';
     if (stepIndex === 4) return `${petName}(이)는?`;
-    if (stepIndex === 5) return '가장 마음에 드는 사진으로';
-    if (stepIndex === 6) return '특징을 자유롭게 적어주세요';
-    if (stepIndex === 7) return '간식, 장난감 등을 자유롭게 적어주세요';
-    return '알레르기, 특이사항 등';
+    if (stepIndex === 5) return 'kg 단위로 입력해 주세요 (예: 4.2)';
+    if (stepIndex === 6) return '도시/지역명만 간단히 적어도 좋아요';
+    if (stepIndex === 7) return '잃어버렸을 때 연락 가능한 번호';
+    if (stepIndex === 8) return '가장 마음에 드는 사진으로';
+    if (stepIndex === 9) return '특징을 자유롭게 적어주세요';
+    if (stepIndex === 10) return '예: 닭가슴살, 북어, 트릿';
+    return '예: 공놀이, 삑삑이, 낚싯대';
   })();
 
   const goBack = () => {
@@ -217,9 +267,12 @@ export default function ProfileSurveyPage() {
     if (stepIndex === 2 && !form.breed.trim()) return '품종을 입력해 주세요.';
     if (stepIndex === 3 && !form.birthDate) return '생일을 입력해 주세요.';
     if (stepIndex === 4 && !form.gender) return '성별을 선택해 주세요.';
-    if (stepIndex === 6 && !form.personality.trim()) return '성격을 입력해 주세요.';
-    if (stepIndex === 7 && !form.favoriteNotes.trim()) return '좋아하는 것을 입력해 주세요.';
-    if (stepIndex === 8 && !form.healthInfo.trim()) return '건강 정보를 입력해 주세요.';
+    if (stepIndex === 5 && !form.weight.trim()) return '몸무게를 입력해 주세요.';
+    if (stepIndex === 6 && !form.location.trim()) return '위치를 입력해 주세요.';
+    if (stepIndex === 7 && !form.ownerContact.trim()) return '보호자 연락처를 입력해 주세요.';
+    if (stepIndex === 9 && !form.personality.trim()) return '성격을 입력해 주세요.';
+    if (stepIndex === 10 && !form.favoriteFood.trim()) return '좋아하는 간식을 입력해 주세요.';
+    if (stepIndex === 11 && !form.favoriteToy.trim()) return '좋아하는 장난감을 입력해 주세요.';
     return null;
   };
 
@@ -228,23 +281,110 @@ export default function ProfileSurveyPage() {
     const breed = form.breed.trim() || kind;
     const generatedSlug = normalizeSlug(form.name);
     const fallbackSlug = `pet-${Date.now().toString(36).slice(-6)}`;
-    const personality = form.personality.trim();
-    const health = form.healthInfo.trim();
 
     return {
       ...emptyPetProfile,
       slug: generatedSlug || fallbackSlug,
+      shareToken: generateToken(),
+      petKind: form.petKind,
       name: form.name.trim(),
+      birthDate: form.birthDate,
       breed,
       age: ageFromBirthDate(form.birthDate),
+      weight: normalizeDecimal(form.weight),
       gender: form.gender,
-      favoriteFood: form.favoriteNotes.trim(),
-      personality: health ? `${personality}${personality ? '\n\n' : ''}건강 정보: ${health}` : personality,
+      location: form.location.trim(),
+      favoriteFood: form.favoriteFood.trim(),
+      favoriteToy: form.favoriteToy.trim(),
+      personality: form.personality.trim(),
+      ownerContact: form.ownerContact.trim(),
       mainPhoto: form.mainPhoto,
     };
   };
 
-  const handleNext = () => {
+  const ensureSurveySession = async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return data.session;
+
+    const { data: signInData, error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      throw new Error(error.message || 'anonymous_sign_in_failed');
+    }
+    if (!signInData.session) {
+      throw new Error('anonymous_sign_in_failed');
+    }
+
+    return signInData.session;
+  };
+
+  const uploadSurveyPhotoIfNeeded = async (slug: string) => {
+    if (form.mainPhotoFile) {
+      const file = form.mainPhotoFile;
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const path = `${slug}/${fileId}.${ext}`;
+
+      const { error } = await supabase.storage.from('pet-photos').upload(path, file, {
+        upsert: true,
+      });
+      if (error) {
+        throw new Error(error.message || 'photo_upload_failed');
+      }
+
+      const { data } = supabase.storage.from('pet-photos').getPublicUrl(path);
+      return data.publicUrl;
+    }
+
+    if (form.mainPhoto.startsWith('blob:')) {
+      return '';
+    }
+
+    return form.mainPhoto;
+  };
+
+  const createProfileFromSurvey = async () => {
+    await ensureSurveySession();
+
+    const basePayload = buildPayload();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const slug = attempt === 0 ? basePayload.slug : `${basePayload.slug}-${randomSlugSuffix()}`;
+      const uploadedPhotoUrl = await uploadSurveyPhotoIfNeeded(slug);
+      const ownerClaimToken = generateToken();
+      const ownerClaimHash = await sha256Hex(ownerClaimToken);
+      const payload: PetProfileData = {
+        ...basePayload,
+        slug,
+        shareToken: generateToken(),
+        mainPhoto: uploadedPhotoUrl,
+      };
+      const insertPayload = {
+        ...toPetRecord(payload),
+        owner_claim_hash: ownerClaimHash,
+      };
+
+      const { data, error } = await supabase
+        .from('pets')
+        .insert(insertPayload)
+        .select()
+        .maybeSingle<PetRecord>();
+
+      if (!error && data) {
+        return { profile: toPetProfile(data), ownerClaimToken };
+      }
+
+      if (error && error.code === '23505') {
+        continue;
+      }
+
+      throw new Error(error?.message || 'insert_failed');
+    }
+
+    throw new Error('slug_conflict');
+  };
+
+  const handleNext = async () => {
     if (isNextDisabled) return;
 
     const error = validateStep();
@@ -256,10 +396,37 @@ export default function ProfileSurveyPage() {
     setMessage(null);
 
     if (isLastStep) {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(PROFILE_SURVEY_DRAFT_KEY, JSON.stringify(buildPayload()));
+      setIsSubmitting(true);
+      try {
+        const { profile: createdProfile, ownerClaimToken } = await createProfileFromSurvey();
+        savePetOwnerClaim({ slug: createdProfile.slug, token: ownerClaimToken });
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
+        }
+        navigate(
+          `/${encodeURIComponent(createdProfile.slug)}?token=${encodeURIComponent(createdProfile.shareToken)}&created=1`,
+          { replace: true },
+        );
+        return;
+      } catch (error) {
+        console.error('[ProfileSurveyPage] submit failed', error);
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(PROFILE_SURVEY_DRAFT_KEY, JSON.stringify(buildPayload()));
+          } catch (draftError) {
+            console.error('[ProfileSurveyPage] failed to save survey draft', draftError);
+          }
+        }
+        if (error instanceof Error && error.message === 'slug_conflict') {
+          setMessage('프로필 주소 생성에 실패했어요. 이름을 조금 다르게 입력하고 다시 시도해 주세요.');
+        } else if (error instanceof Error) {
+          setMessage(error.message);
+        } else {
+          setMessage('등록에 실패했어요.');
+        }
+      } finally {
+        setIsSubmitting(false);
       }
-      navigate('/admin');
       return;
     }
 
@@ -274,6 +441,7 @@ export default function ProfileSurveyPage() {
     setForm((prev) => ({
       ...prev,
       mainPhoto: objectUrl,
+      mainPhotoFile: file,
       mainPhotoFileName: file.name,
     }));
   };
@@ -417,6 +585,42 @@ export default function ProfileSurveyPage() {
 
     if (stepIndex === 5) {
       return (
+        <input
+          value={form.weight}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, weight: normalizeDecimal(event.target.value) }))
+          }
+          inputMode="decimal"
+          placeholder="예: 4.2"
+          style={textFieldStyle}
+        />
+      );
+    }
+
+    if (stepIndex === 6) {
+      return (
+        <input
+          value={form.location}
+          onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
+          placeholder="예: 부산광역시"
+          style={textFieldStyle}
+        />
+      );
+    }
+
+    if (stepIndex === 7) {
+      return (
+        <input
+          value={form.ownerContact}
+          onChange={(event) => setForm((prev) => ({ ...prev, ownerContact: event.target.value }))}
+          placeholder="예: 01012345678"
+          style={textFieldStyle}
+        />
+      );
+    }
+
+    if (stepIndex === 8) {
+      return (
         <>
           <input
             ref={fileInputRef}
@@ -454,7 +658,7 @@ export default function ProfileSurveyPage() {
       );
     }
 
-    if (stepIndex === 6) {
+    if (stepIndex === 9) {
       return (
         <textarea
           value={form.personality}
@@ -466,27 +670,31 @@ export default function ProfileSurveyPage() {
       );
     }
 
-    if (stepIndex === 7) {
+    if (stepIndex === 10) {
       return (
         <textarea
-          value={form.favoriteNotes}
-          onChange={(event) => setForm((prev) => ({ ...prev, favoriteNotes: event.target.value }))}
-          placeholder="예: 닭가슴살 간식, 삑삑이 장난감"
+          value={form.favoriteFood}
+          onChange={(event) => setForm((prev) => ({ ...prev, favoriteFood: event.target.value }))}
+          placeholder="예: 닭가슴살, 북어 트릿, 고구마"
           rows={4}
           style={textFieldStyle}
         />
       );
     }
 
-    return (
-      <textarea
-        value={form.healthInfo}
-        onChange={(event) => setForm((prev) => ({ ...prev, healthInfo: event.target.value }))}
-        placeholder="예: 닭고기 알레르기가 있어요. 슬개골 탈구 수술 받았어요."
-        rows={5}
-        style={textFieldStyle}
-      />
-    );
+    if (stepIndex === 11) {
+      return (
+        <textarea
+          value={form.favoriteToy}
+          onChange={(event) => setForm((prev) => ({ ...prev, favoriteToy: event.target.value }))}
+          placeholder="예: 공놀이, 삑삑이, 노즈워크 장난감"
+          rows={4}
+          style={textFieldStyle}
+        />
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -534,7 +742,7 @@ export default function ProfileSurveyPage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(9, minmax(0, 1fr))',
+              gridTemplateColumns: `repeat(${TOTAL_STEPS}, minmax(0, 1fr))`,
               gap: '5px',
             }}
           >
@@ -578,7 +786,9 @@ export default function ProfileSurveyPage() {
           <p style={{ margin: '9px 0 0', fontSize: '15px', color: '#4b5563' }}>{currentSubtitle}</p>
         </section>
 
-        <section style={{ marginTop: '24px' }}>{renderStepField()}</section>
+        <section key={stepIndex} style={{ marginTop: '24px' }}>
+          {renderStepField()}
+        </section>
 
         {message && (
           <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '14px' }} role="alert">
@@ -608,7 +818,7 @@ export default function ProfileSurveyPage() {
               cursor: isNextDisabled ? 'not-allowed' : 'pointer',
             }}
           >
-            {isLastStep ? '완료' : '다음'}
+            {isSubmitting ? '등록 중...' : isLastStep ? '완료' : '다음'}
             {isLastStep ? <Check size={16} /> : <ChevronRight size={16} />}
           </button>
         </div>

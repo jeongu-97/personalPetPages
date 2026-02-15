@@ -1,9 +1,11 @@
-import { PetComment, PetProfileData } from '../types/pet';
+import { PetComment, PetKind, PetProfileData } from '../types/pet';
 
 export type PetRecord = {
   id: string;
   slug: string;
   share_token?: string | null;
+  pet_kind?: string | null;
+  owner_claim_hash?: string | null;
   name: string;
   birth_date?: string | null;
   breed: string;
@@ -24,6 +26,9 @@ export type PetRecord = {
 export type PetRecordInput = Omit<PetRecord, 'id' | 'updated_at'> & {
   id?: string;
 };
+
+const toPetKind = (value: unknown): PetKind =>
+  value === 'dog' || value === 'cat' || value === 'bird' || value === 'fish' ? value : '';
 
 const toStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
@@ -53,6 +58,7 @@ export const toPetProfile = (record: PetRecord): PetProfileData => ({
   id: record.id,
   slug: record.slug,
   shareToken: record.share_token ?? '',
+  petKind: toPetKind(record.pet_kind),
   name: record.name,
   birthDate: record.birth_date ?? '',
   breed: record.breed,
@@ -73,6 +79,7 @@ export const toPetRecord = (pet: PetProfileData): PetRecordInput => ({
   id: pet.id,
   slug: pet.slug,
   share_token: pet.shareToken,
+  pet_kind: toPetKind(pet.petKind),
   name: pet.name,
   birth_date: pet.birthDate ?? '',
   breed: pet.breed,

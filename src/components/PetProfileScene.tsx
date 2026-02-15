@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { PetProfileData } from '../types/pet';
+import { PetKind, PetProfileData } from '../types/pet';
 
 interface ParallaxProps {
   mouseX: number;
   mouseY: number;
 }
+
+type DisplayPetKind = PetKind | 'unknown';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
@@ -17,9 +19,26 @@ const normalizeDecimal = (value: string) => {
   const decimals = rest.join('');
   return `${integer}.${decimals}`;
 };
-const formatAge = (value: string) => {
+const ageFromBirthDate = (value?: string) => {
+  const raw = (value ?? '').trim();
+  if (!raw) return '';
+  const birth = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return '';
+
+  const now = new Date();
+  let monthDiff =
+    (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth());
+  if (now.getDate() < birth.getDate()) {
+    monthDiff -= 1;
+  }
+
+  if (monthDiff < 0) return '';
+  if (monthDiff < 24) return `${monthDiff}개월`;
+  return `${Math.floor(monthDiff / 12)}살`;
+};
+const formatAge = (value: string, birthDate?: string) => {
   const numeric = normalizeNumeric(value);
-  if (!numeric) return '';
+  if (!numeric) return ageFromBirthDate(birthDate);
   if (/개월|월/.test(value)) return `${numeric}개월`;
   if (/살|년/.test(value)) return `${numeric}살`;
   return `${numeric}살`;
@@ -37,6 +56,18 @@ const formatBirthDate = (value?: string) => {
   if (matched) return `${matched[1]}.${matched[2]}.${matched[3]}`;
 
   return raw;
+};
+
+const normalizePetKind = (value: unknown): PetKind =>
+  value === 'dog' || value === 'cat' || value === 'bird' || value === 'fish' ? value : '';
+
+const petEmojiByKind: Record<DisplayPetKind, string> = {
+  dog: '🐶',
+  cat: '🐱',
+  bird: '🐦',
+  fish: '🐠',
+  '': '🐾',
+  unknown: '🐾',
 };
 
 function BackgroundLayer({ mouseX, mouseY }: ParallaxProps) {
@@ -78,6 +109,10 @@ function PetProfileCard({
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
+  const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
+  const hasMainPhoto = Boolean(pet.mainPhoto?.trim());
+  const petKind = normalizePetKind(pet.petKind) || 'unknown';
+  const petEmoji = petEmojiByKind[petKind];
   const isFemale = pet.gender === '암컷';
   const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
   const shadows = isFemale
@@ -133,8 +168,32 @@ function PetProfileCard({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isEditMenuOpen || typeof document === 'undefined') return;
+
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-edit-menu-root="true"]')) return;
+      setIsEditMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsEditMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isEditMenuOpen]);
+
   const handleToggleFlip = () => {
     if (isFlipping) return;
+    setIsEditMenuOpen(false);
     setIsFlipping(true);
     setIsFlipped((prev) => !prev);
     if (flipTimerRef.current !== null) {
@@ -215,6 +274,10 @@ function PetProfileCard({
   };
 
   const handleCardClick = () => {
+    if (isEditMenuOpen) {
+      setIsEditMenuOpen(false);
+      return;
+    }
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -250,6 +313,99 @@ function PetProfileCard({
 
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
+
+  const toggleEditMenu = (event: any) => {
+    stopCardFlipFromChild(event);
+    setIsEditMenuOpen((prev) => !prev);
+  };
+
+  const goToEditPage = (event: any) => {
+    stopCardFlipFromChild(event);
+    setIsEditMenuOpen(false);
+    if (typeof window === 'undefined') return;
+    window.location.href = '/admin';
+  };
+
+  const renderEditMenuButton = () => (
+    <div
+      data-edit-menu-root="true"
+      style={{
+        position: 'absolute',
+        top: '12px',
+        right: '12px',
+        zIndex: 25,
+      }}
+    >
+      <button
+        type="button"
+        onPointerDown={stopCardFlipFromChild}
+        onPointerUp={stopCardFlipFromChild}
+        onPointerCancel={stopCardFlipFromChild}
+        onClick={toggleEditMenu}
+        aria-label="프로필 편집 메뉴 열기"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 'auto',
+          height: 'auto',
+          padding: 0,
+          lineHeight: 0,
+          background: 'transparent',
+          border: 'none',
+          boxShadow: 'none',
+          cursor: 'pointer',
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" shapeRendering="geometricPrecision">
+          <circle cx="10" cy="4" r="2" fill="#ffffff" stroke="#111827" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <circle cx="10" cy="10" r="2" fill="#ffffff" stroke="#111827" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <circle cx="10" cy="16" r="2" fill="#ffffff" stroke="#111827" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        </svg>
+      </button>
+      {isEditMenuOpen && (
+        <div
+          role="menu"
+          onPointerDown={stopCardFlipFromChild}
+          onPointerUp={stopCardFlipFromChild}
+          onPointerCancel={stopCardFlipFromChild}
+          onClick={stopCardFlipFromChild}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            right: 0,
+            minWidth: '92px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.22)',
+            backdropFilter: 'blur(10px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+            border: '1px solid rgba(15, 23, 42, 0.28)',
+            boxShadow: 'none',
+            padding: '4px',
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={goToEditPage}
+            className="w-full"
+            style={{
+              borderRadius: '7px',
+              height: '30px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#111827',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            편집하기
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   const cloneNodeWithComputedStyles = (sourceRoot: HTMLElement) => {
     const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement;
@@ -446,13 +602,25 @@ function PetProfileCard({
   const frontCardContent = (
     <>
       <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
-        <ImageWithFallback src={pet.mainPhoto} alt={pet.name} className="w-full h-full object-cover" />
+        {hasMainPhoto ? (
+          <ImageWithFallback src={pet.mainPhoto} alt={pet.name} className="w-full h-full object-cover" />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(160deg, #f7dff0 0%, #f2e9f8 52%, #ecf1fb 100%)',
+            }}
+          >
+            <span style={{ fontSize: 'clamp(80px, 15vh, 130px)', lineHeight: 1 }}>{petEmoji}</span>
+          </div>
+        )}
         <div
           className="absolute inset-0"
           style={{
             background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
           }}
         />
+        {renderEditMenuButton()}
       </div>
 
       <div
@@ -489,7 +657,7 @@ function PetProfileCard({
             <span>{formatBirthDate(pet.birthDate)}</span>
             <span className="text-gray-300">•</span>
             <span className="font-semibold" style={{ color: '#a855f7' }}>
-              {formatAge(pet.age) || '나이 미입력'}
+              {formatAge(pet.age, pet.birthDate) || '나이 미입력'}
             </span>
           </div>
 
@@ -610,18 +778,30 @@ function PetProfileCard({
   const backCardContent = (
     <div className="overflow-y-auto flex-1 flex flex-col">
       <div className="overflow-hidden relative shrink-0" style={{ height: 'clamp(200px, 32vh, 280px)' }}>
-        <ImageWithFallback
-          src={pet.mainPhoto}
-          alt={pet.name}
-          className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
-        />
+        {hasMainPhoto ? (
+          <ImageWithFallback
+            src={pet.mainPhoto}
+            alt={pet.name}
+            className="w-full h-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(160deg, #f7dff0 0%, #f2e9f8 52%, #ecf1fb 100%)',
+            }}
+          >
+            <span style={{ fontSize: 'clamp(80px, 15vh, 130px)', lineHeight: 1 }}>{petEmoji}</span>
+          </div>
+        )}
         <div
           className="absolute inset-0"
           style={{
             background: 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)',
           }}
         />
+        {renderEditMenuButton()}
       </div>
 
       <div
@@ -819,111 +999,113 @@ function PetProfileCard({
   );
 
   return (
-    <div
-      ref={cardRef}
-      className="relative w-full max-w-md mx-auto z-20 h-full flex items-center"
-      style={{ maxHeight: '96vh' }}
-    >
+    <>
       <div
-        className="w-full transition-transform duration-150 ease-out"
-        style={{
-          transform: `perspective(1000px) translateZ(30px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
-          transformStyle: 'preserve-3d',
-          perspective: '1200px',
-          WebkitPerspective: '1200px',
-        }}
+        ref={cardRef}
+        className="relative w-full max-w-md mx-auto z-20 h-full flex items-center"
+        style={{ maxHeight: '96vh' }}
       >
         <div
-          className="relative rounded-3xl mx-3"
-          role="button"
-          tabIndex={0}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          onWheel={handleWheel}
-          onClick={handleCardClick}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              handleToggleFlip();
-            }
-          }}
+          className="w-full transition-transform duration-150 ease-out"
           style={{
-            position: 'relative',
-            maxHeight: '94vh',
-            height: 'min(92vh, 820px)',
-            transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
-            transformOrigin: 'center center',
+            transform: `perspective(1000px) translateZ(30px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
             transformStyle: 'preserve-3d',
-            WebkitTransformStyle: 'preserve-3d',
-            willChange: 'transform',
-            touchAction: 'pan-y',
-            userSelect: 'none',
-            cursor: 'pointer',
+            perspective: '1200px',
+            WebkitPerspective: '1200px',
           }}
         >
           <div
-            className="absolute inset-0 rounded-3xl"
-            ref={frontCaptureRef}
+            className="relative rounded-3xl mx-3"
+            role="button"
+            tabIndex={0}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onWheel={handleWheel}
+            onClick={handleCardClick}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleToggleFlip();
+              }
+            }}
             style={{
-              background: baseBg,
-              boxShadow: shadows.outer,
-              border: '2px solid rgba(255, 255, 255, 0.8)',
-              padding: 'clamp(4px, 0.4vh, 8px)',
-              backfaceVisibility: 'hidden',
-              WebkitBackfaceVisibility: 'hidden',
-              transform: 'rotateY(0deg)',
+              position: 'relative',
+              maxHeight: '94vh',
+              height: 'min(92vh, 820px)',
+              transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+              transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+              transformOrigin: 'center center',
+              transformStyle: 'preserve-3d',
+              WebkitTransformStyle: 'preserve-3d',
+              willChange: 'transform',
+              touchAction: 'pan-y',
+              userSelect: 'none',
+              cursor: 'pointer',
             }}
           >
             <div
-              className="rounded-3xl overflow-hidden relative h-full flex flex-col"
+              className="absolute inset-0 rounded-3xl"
+              ref={frontCaptureRef}
               style={{
-                background: 'rgba(255, 255, 255, 0.7)',
+                background: baseBg,
+                boxShadow: shadows.outer,
+                border: '2px solid rgba(255, 255, 255, 0.8)',
+                padding: 'clamp(4px, 0.4vh, 8px)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(0deg)',
               }}
             >
               <div
-                className="absolute inset-0 flex flex-col"
+                className="rounded-3xl overflow-hidden relative h-full flex flex-col"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.78)',
+                  background: 'rgba(255, 255, 255, 0.7)',
                 }}
               >
-                {frontCardContent}
+                <div
+                  className="absolute inset-0 flex flex-col"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.78)',
+                  }}
+                >
+                  {frontCardContent}
+                </div>
               </div>
             </div>
-          </div>
-          <div
-            className="absolute inset-0 rounded-3xl"
-            style={{
-              background: baseBg,
-              boxShadow: shadows.outer,
-              border: '2px solid rgba(255, 255, 255, 0.8)',
-              padding: 'clamp(4px, 0.4vh, 8px)',
-              backfaceVisibility: 'hidden',
-              WebkitBackfaceVisibility: 'hidden',
-              transform: 'rotateY(180deg)',
-            }}
-          >
             <div
-              className="rounded-3xl overflow-hidden relative h-full flex flex-col"
+              className="absolute inset-0 rounded-3xl"
               style={{
-                background: 'rgba(255, 255, 255, 0.7)',
+                background: baseBg,
+                boxShadow: shadows.outer,
+                border: '2px solid rgba(255, 255, 255, 0.8)',
+                padding: 'clamp(4px, 0.4vh, 8px)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(180deg)',
               }}
             >
               <div
-                className="absolute inset-0 flex flex-col"
+                className="rounded-3xl overflow-hidden relative h-full flex flex-col"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.78)',
+                  background: 'rgba(255, 255, 255, 0.7)',
                 }}
               >
-                {backCardContent}
+                <div
+                  className="absolute inset-0 flex flex-col"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.78)',
+                  }}
+                >
+                  {backCardContent}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

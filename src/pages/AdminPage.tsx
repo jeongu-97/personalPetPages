@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
+import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
 import { supabase } from '../lib/supabaseClient';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
 import { PetComment, PetProfileData, emptyPetProfile } from '../types/pet';
@@ -31,6 +32,27 @@ const normalizeDecimal = (value: string) => {
   if (!rest.length) return integer;
   const decimals = rest.join('');
   return `${integer}.${decimals}`;
+};
+
+const normalizePetKind = (value: unknown): '' | 'dog' | 'cat' | 'bird' | 'fish' =>
+  value === 'dog' || value === 'cat' || value === 'bird' || value === 'fish' ? value : '';
+
+const calculateAgeFromBirthDate = (birthDate: string): { value: string; unit: 'years' | 'months' } | null => {
+  if (!birthDate) return null;
+
+  const birth = new Date(`${birthDate}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+
+  const now = new Date();
+  let monthDiff =
+    (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth());
+  if (now.getDate() < birth.getDate()) {
+    monthDiff -= 1;
+  }
+
+  if (monthDiff < 0) return null;
+  if (monthDiff < 24) return { value: `${monthDiff}`, unit: 'months' };
+  return { value: `${Math.floor(monthDiff / 12)}`, unit: 'years' };
 };
 
 const normalizeStringArray = (value: unknown): string[] => {
@@ -125,17 +147,22 @@ export default function AdminPage() {
         return;
       }
 
+      const draftBirthDate = typeof draft.birthDate === 'string' ? draft.birthDate : '';
       const draftAge = typeof draft.age === 'string' ? draft.age : '';
       const draftWeight = typeof draft.weight === 'string' ? draft.weight : '';
-      const isMonths = /개월|월/.test(draftAge);
+      const computedAgeFromBirthDate = calculateAgeFromBirthDate(draftBirthDate);
+      const isMonths = computedAgeFromBirthDate
+        ? computedAgeFromBirthDate.unit === 'months'
+        : /개월|월/.test(draftAge);
       const draftFunFacts = normalizeStringArray((draft as { funFacts?: unknown }).funFacts);
       const draftComments = normalizeComments((draft as { comments?: unknown }).comments);
 
       setForm({
         ...emptyPetProfile,
         ...draft,
-        birthDate: typeof draft.birthDate === 'string' ? draft.birthDate : '',
-        age: normalizeNumeric(draftAge),
+        petKind: normalizePetKind(draft.petKind),
+        birthDate: draftBirthDate,
+        age: computedAgeFromBirthDate?.value ?? normalizeNumeric(draftAge),
         weight: normalizeDecimal(draftWeight),
         funFacts: draftFunFacts,
         comments: draftComments,
@@ -169,7 +196,34 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!session) return;
+
+    const claimPendingOwnerships = async () => {
+      if (typeof window === 'undefined') return false;
+      const claims = getPetOwnerClaims();
+      if (!claims.length) return false;
+
+      let claimedAny = false;
+      for (const claim of claims) {
+        const { data, error } = await supabase.rpc('claim_pet_ownership', {
+          p_slug: claim.slug,
+          p_claim_token: claim.token,
+        });
+
+        if (error) {
+          continue;
+        }
+
+        if (data === true) {
+          removePetOwnerClaim(claim.slug);
+          claimedAny = true;
+        }
+      }
+
+      return claimedAny;
+    };
+
     const loadPets = async () => {
+      const claimedAny = await claimPendingOwnerships();
       const { data, error } = await supabase
         .from('pets')
         .select('*')
@@ -182,6 +236,9 @@ export default function AdminPage() {
       }
 
       setPets((data ?? []).map(toPetProfile));
+      if (claimedAny) {
+        setStatus('로그인 계정에 설문으로 만든 프로필 편집 권한을 연결했어요.');
+      }
     };
 
     loadPets();
@@ -228,10 +285,12 @@ export default function AdminPage() {
   };
 
   const handleSelectPet = (pet: PetProfileData) => {
+    const computedAgeFromBirthDate = calculateAgeFromBirthDate(pet.birthDate ?? '');
     const isMonths = /개월|월/.test(pet.age);
     setForm({
       ...pet,
-      age: normalizeNumeric(pet.age),
+      petKind: normalizePetKind(pet.petKind),
+      age: computedAgeFromBirthDate?.value ?? normalizeNumeric(pet.age),
       weight: normalizeDecimal(pet.weight),
       funFacts: normalizeStringArray(pet.funFacts),
       comments: normalizeComments(pet.comments),
@@ -239,7 +298,7 @@ export default function AdminPage() {
     setStatus(null);
     setSavedSlug(pet.slug);
     setSavedShareToken(pet.shareToken);
-    setAgeUnit(isMonths ? 'months' : 'years');
+    setAgeUnit(computedAgeFromBirthDate?.unit ?? (isMonths ? 'months' : 'years'));
   };
 
   const handleNewPet = () => {
@@ -326,12 +385,15 @@ export default function AdminPage() {
     setIsSaving(true);
     setStatus(null);
 
-    const normalizedAge = normalizeNumeric(form.age);
+    const autoAgeFromBirthDate = calculateAgeFromBirthDate(form.birthDate ?? '');
+    const normalizedAge = autoAgeFromBirthDate?.value ?? normalizeNumeric(form.age);
+    const resolvedAgeUnit = autoAgeFromBirthDate?.unit ?? ageUnit;
     const payload: PetProfileData = {
       ...form,
+      petKind: normalizePetKind(form.petKind),
       slug: sanitizedSlug,
       birthDate: form.birthDate ?? '',
-      age: normalizedAge ? `${normalizedAge}${ageUnit === 'months' ? '개월' : '살'}` : '',
+      age: normalizedAge ? `${normalizedAge}${resolvedAgeUnit === 'months' ? '개월' : '살'}` : '',
       weight: normalizeDecimal(form.weight),
       funFacts: normalizeStringArray(form.funFacts),
       comments: normalizeComments(form.comments),
@@ -661,7 +723,18 @@ export default function AdminPage() {
                   <input
                     type="date"
                     value={form.birthDate ?? ''}
-                    onChange={(event) => setForm((prev) => ({ ...prev, birthDate: event.target.value }))}
+                    onChange={(event) => {
+                      const nextBirthDate = event.target.value;
+                      const computedAge = calculateAgeFromBirthDate(nextBirthDate);
+                      setForm((prev) => ({
+                        ...prev,
+                        birthDate: nextBirthDate,
+                        age: computedAge?.value ?? '',
+                      }));
+                      if (computedAge) {
+                        setAgeUnit(computedAge.unit);
+                      }
+                    }}
                     className="rounded-2xl px-4 py-3 bg-gray-100"
                   />
                 </div>
