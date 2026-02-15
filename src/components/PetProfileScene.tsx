@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star } from 'lucide-react';
+import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { PetProfileData } from '../types/pet';
 
@@ -64,6 +64,7 @@ function PetProfileCard({
   pet,
 }: ParallaxProps & { pet: PetProfileData }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const frontCaptureRef = useRef<HTMLDivElement>(null);
   const pointerStartRef = useRef<{
     x: number;
     y: number;
@@ -76,6 +77,7 @@ function PetProfileCard({
   const suppressClickRef = useRef(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFlipping, setIsFlipping] = useState(false);
+  const [isSavingImage, setIsSavingImage] = useState(false);
   const isFemale = pet.gender === '암컷';
   const baseBg = isFemale ? '#f7e5ef' : '#e0e5ec';
   const shadows = isFemale
@@ -249,17 +251,196 @@ function PetProfileCard({
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const handleSaveImage = (event: any) => {
-    stopCardFlipFromChild(event);
-    if (!pet.mainPhoto || typeof window === 'undefined') return;
+  const cloneNodeWithComputedStyles = (sourceRoot: HTMLElement) => {
+    const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement;
+    const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>('*'))];
+    const clonedElements = [clonedRoot, ...Array.from(clonedRoot.querySelectorAll<HTMLElement>('*'))];
 
-    const downloadName = `${(pet.slug || pet.name || 'pet').trim()}-profile.jpg`;
-    const link = window.document.createElement('a');
-    link.href = pet.mainPhoto;
-    link.download = downloadName;
-    window.document.body.appendChild(link);
-    link.click();
-    link.remove();
+    sourceElements.forEach((sourceElement, index) => {
+      const clonedElement = clonedElements[index];
+      if (!clonedElement) return;
+
+      const computedStyle = window.getComputedStyle(sourceElement);
+      const cssText = Array.from(computedStyle)
+        .map((property) => `${property}:${computedStyle.getPropertyValue(property)};`)
+        .join('');
+      clonedElement.style.cssText = cssText;
+    });
+
+    return clonedRoot;
+  };
+
+  const toDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('image_data_url_failed'));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('image_data_url_failed'));
+      reader.readAsDataURL(blob);
+    });
+
+  const inlineImagesAsDataUrl = async (root: HTMLElement) => {
+    const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+    await Promise.all(
+      images.map(async (imageElement) => {
+        const source = imageElement.getAttribute('src');
+        if (!source || source.startsWith('data:')) return;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+          let response: Response;
+          try {
+            response = await fetch(source, { mode: 'cors', signal: controller.signal });
+          } finally {
+            window.clearTimeout(timeoutId);
+          }
+          if (!response.ok) return;
+          const blob = await response.blob();
+          const dataUrl = await toDataUrl(blob);
+          imageElement.setAttribute('src', dataUrl);
+          imageElement.removeAttribute('crossorigin');
+        } catch {
+          // keep original source
+        }
+      }),
+    );
+  };
+
+  const downloadFrontCardAsPng = async (targetElement: HTMLElement, fileName: string) => {
+    const width = targetElement.offsetWidth || Math.ceil(targetElement.getBoundingClientRect().width);
+    const height = targetElement.offsetHeight || Math.ceil(targetElement.getBoundingClientRect().height);
+    const borderRadius = window.getComputedStyle(targetElement).borderRadius;
+
+    const clonedCard = cloneNodeWithComputedStyles(targetElement);
+    clonedCard.style.width = `${width}px`;
+    clonedCard.style.height = `${height}px`;
+    clonedCard.style.maxHeight = 'none';
+    clonedCard.style.margin = '0';
+    clonedCard.style.transform = 'none';
+    clonedCard.style.position = 'relative';
+    clonedCard.style.inset = 'auto';
+    clonedCard.style.left = '0';
+    clonedCard.style.top = '0';
+    clonedCard.style.right = 'auto';
+    clonedCard.style.bottom = 'auto';
+    clonedCard.style.overflow = 'hidden';
+    clonedCard.style.boxSizing = 'border-box';
+    clonedCard.style.borderRadius = borderRadius;
+
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    wrapper.style.position = 'relative';
+    wrapper.style.width = `${width}px`;
+    wrapper.style.height = `${height}px`;
+    wrapper.style.margin = '0';
+    wrapper.style.padding = '0';
+    wrapper.style.background = 'transparent';
+    wrapper.style.overflow = 'hidden';
+    wrapper.style.borderRadius = borderRadius;
+    wrapper.appendChild(clonedCard);
+
+    await inlineImagesAsDataUrl(wrapper);
+
+    const serializedCard = new XMLSerializer().serializeToString(wrapper);
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <foreignObject x="0" y="0" width="100%" height="100%">${serializedCard}</foreignObject>
+      </svg>
+    `;
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const downloadBlob = (blob: Blob, name: string) => {
+      const blobUrl = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = blobUrl;
+      link.download = name;
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+    };
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const image = new Image();
+        let settled = false;
+        const finalize = (callback: () => void) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(loadTimeoutId);
+          callback();
+        };
+        const loadTimeoutId = window.setTimeout(() => {
+          finalize(() => reject(new Error('svg_render_timeout')));
+        }, 8000);
+
+        image.onload = () => {
+          try {
+            const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 1));
+            const canvas = window.document.createElement('canvas');
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+
+            const context = canvas.getContext('2d');
+            if (!context) {
+              finalize(() => reject(new Error('canvas_context_failed')));
+              return;
+            }
+
+            context.scale(scale, scale);
+            context.drawImage(image, 0, 0, width, height);
+
+            const blobTimeoutId = window.setTimeout(() => {
+              finalize(() => reject(new Error('canvas_blob_timeout')));
+            }, 4000);
+
+            canvas.toBlob((blob) => {
+              window.clearTimeout(blobTimeoutId);
+              if (!blob) {
+                finalize(() => reject(new Error('canvas_blob_failed')));
+                return;
+              }
+
+              downloadBlob(blob, fileName);
+              finalize(() => resolve());
+            }, 'image/png');
+          } catch {
+            finalize(() => reject(new Error('canvas_draw_failed')));
+          }
+        };
+        image.onerror = () => finalize(() => reject(new Error('svg_render_failed')));
+        image.src = svgUrl;
+      });
+    } catch {
+      const svgFileName = fileName.replace(/\.png$/i, '.svg');
+      downloadBlob(svgBlob, svgFileName);
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  };
+
+  const handleSaveImage = async (event: any) => {
+    stopCardFlipFromChild(event);
+    if (typeof window === 'undefined' || isSavingImage) return;
+
+    const targetElement = frontCaptureRef.current;
+    if (!targetElement) return;
+
+    const downloadName = `${(pet.slug || pet.name || 'pet').trim()}-profile-card.png`;
+    setIsSavingImage(true);
+    try {
+      await downloadFrontCardAsPng(targetElement, downloadName);
+    } catch {
+      window.alert('이미지 저장에 실패했어요. 다시 시도해 주세요.');
+    } finally {
+      setIsSavingImage(false);
+    }
   };
 
   const frontCardContent = (
@@ -499,6 +680,70 @@ function PetProfileCard({
           ))}
         </div>
 
+        <div
+          className="rounded-2xl"
+          style={{
+            background: 'rgba(255, 255, 255, 0.5)',
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(255, 255, 255, 0.7)',
+            boxShadow: shadows.glass,
+            padding: 'clamp(10px, 1.5vh, 20px)',
+          }}
+        >
+          <div className="flex items-center gap-2 text-gray-700 mb-2">
+            <MessageCircle
+              className="shrink-0 text-gray-600"
+              style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+            />
+            <p className="font-semibold" style={{ fontSize: 'clamp(16px, 2.4vh, 22px)' }}>
+              댓글
+            </p>
+          </div>
+
+          {[
+            `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
+            `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
+            `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
+          ].map((text, index) => (
+            <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
+              <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>
+                •
+              </span>
+              <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
+                {text}
+              </p>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onPointerDown={stopCardFlipFromChild}
+            onPointerUp={stopCardFlipFromChild}
+            onPointerCancel={stopCardFlipFromChild}
+            onClick={stopCardFlipFromChild}
+            className="w-full rounded-2xl text-white"
+            style={{
+              marginTop: 'clamp(10px, 1.5vh, 16px)',
+              background: 'linear-gradient(90deg, #a855f7 0%, #ec4899 100%)',
+              boxShadow: '0 8px 18px rgba(168, 85, 247, 0.25)',
+              padding: 'clamp(10px, 1.4vh, 14px)',
+              minHeight: 'clamp(42px, 6.2vh, 52px)',
+              fontSize: 'clamp(13px, 2vh, 16px)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              columnGap: '8px',
+            }}
+          >
+            <MessageCircle
+              className="shrink-0"
+              style={{ width: 'clamp(15px, 2.2vh, 18px)', height: 'clamp(15px, 2.2vh, 18px)' }}
+            />
+            <span>댓글 작성</span>
+          </button>
+        </div>
+
         <button
           type="button"
           onPointerDown={stopCardFlipFromChild}
@@ -528,7 +773,7 @@ function PetProfileCard({
 
         <button
           type="button"
-          disabled={!pet.mainPhoto}
+          disabled={isSavingImage}
           onPointerDown={stopCardFlipFromChild}
           onPointerUp={stopCardFlipFromChild}
           onPointerCancel={stopCardFlipFromChild}
@@ -541,7 +786,7 @@ function PetProfileCard({
             minHeight: 'clamp(46px, 6.8vh, 56px)',
             fontSize: 'clamp(13px, 2vh, 16px)',
             fontWeight: 600,
-            opacity: pet.mainPhoto ? 1 : 0.6,
+            opacity: isSavingImage ? 0.6 : 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -552,7 +797,7 @@ function PetProfileCard({
             className="text-purple-500 shrink-0"
             style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
           />
-          <span>이미지로 저장</span>
+          <span>{isSavingImage ? '이미지 생성 중...' : '이미지로 저장'}</span>
         </button>
 
         <p className="text-center text-gray-500 font-medium" style={{ fontSize: 'clamp(10px, 1.6vh, 12px)' }}>
@@ -610,6 +855,7 @@ function PetProfileCard({
         >
           <div
             className="absolute inset-0 rounded-3xl"
+            ref={frontCaptureRef}
             style={{
               background: baseBg,
               boxShadow: shadows.outer,
