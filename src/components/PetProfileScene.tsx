@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { buildDefaultFunFacts } from '../lib/funFacts';
@@ -18,12 +18,15 @@ type PetProfileSceneProps = {
   editLink?: string;
   onEditRequest?: () => void;
   showEditMenu?: boolean;
+  bottomReservedHeight?: number;
+  bottomAction?: ReactNode;
   onShareRequest?: () => void;
   onCommentRequest?: () => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
+  bottomActionMode?: 'inline' | 'floating-on-scroll';
 };
 
 type DisplayPetKind = PetKind | 'unknown';
@@ -193,6 +196,8 @@ function PetProfileCard({
   isSaving = false,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
+  alignTop = false,
+  viewportBottomReserve = 0,
 }: ParallaxProps & {
   pet: PetProfileData;
   mode: SceneMode;
@@ -206,6 +211,8 @@ function PetProfileCard({
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
+  alignTop?: boolean;
+  viewportBottomReserve?: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const frontCaptureRef = useRef<HTMLDivElement>(null);
@@ -1622,11 +1629,11 @@ function PetProfileCard({
     <>
       <div
         ref={cardRef}
-        className="relative w-full max-w-md mx-auto z-20 h-full flex items-center"
-        style={{ maxHeight: '96vh' }}
+        className={`relative w-full max-w-md mx-auto z-20 h-full flex ${alignTop ? 'items-start pt-2' : 'items-center'}`}
+        style={{ maxHeight: '100%' }}
       >
         <div
-          className="w-full transition-transform duration-150 ease-out"
+          className="w-full h-full transition-transform duration-150 ease-out"
           style={{
             transform: `perspective(1000px) translateZ(30px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
             transformStyle: 'preserve-3d',
@@ -1653,8 +1660,14 @@ function PetProfileCard({
             }}
             style={{
               position: 'relative',
-              maxHeight: '94vh',
-              height: 'min(92vh, 820px)',
+              maxHeight:
+                viewportBottomReserve > 0
+                  ? `calc(100dvh - ${viewportBottomReserve}px)`
+                  : '96dvh',
+              height:
+                viewportBottomReserve > 0
+                  ? `min(calc(100dvh - ${viewportBottomReserve}px), 820px)`
+                  : 'min(92dvh, 820px)',
               transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
               transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
               transformOrigin: 'center center',
@@ -1822,12 +1835,15 @@ export default function PetProfileScene({
   editLink,
   onEditRequest,
   showEditMenu = true,
+  bottomReservedHeight = 0,
+  bottomAction,
   onShareRequest,
   onCommentRequest,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
+  bottomActionMode = 'inline',
 }: PetProfileSceneProps) {
   const [mousePosition, setMousePosition] = useState({ x: 300, y: 400 });
   const [isMouseInside, setIsMouseInside] = useState(false);
@@ -1837,7 +1853,11 @@ export default function PetProfileScene({
   const [isMotionEnabled, setIsMotionEnabled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const motionBaselineRef = useRef<{ beta: number; gamma: number } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const isEditMode = mode === 'edit';
+  const hasBottomAction = Boolean(bottomAction);
+  const isFloatingBottomAction = hasBottomAction && bottomActionMode === 'floating-on-scroll';
+  const [isBottomActionVisible, setIsBottomActionVisible] = useState(false);
   const baseBg = resolveCardBackground(petData.gender, petData.backgroundColor);
   const buttonShadow = createNeumorphismPalette(baseBg).button;
 
@@ -1946,6 +1966,56 @@ export default function PetProfileScene({
     };
   }, [isMobileInput, isMotionEnabled, isEditMode]);
 
+  useEffect(() => {
+    if (!isFloatingBottomAction) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 6) return;
+      if (event.deltaY < 0) {
+        setIsBottomActionVisible(true);
+      } else {
+        setIsBottomActionVisible(false);
+      }
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchEnd = () => {
+      touchStartRef.current = null;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const start = touchStartRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+
+      const deltaX = touch.clientX - start.x;
+      const deltaY = start.y - touch.clientY;
+      if (Math.abs(deltaY) < 20 || Math.abs(deltaY) <= Math.abs(deltaX) + 8) return;
+
+      setIsBottomActionVisible(deltaY > 0);
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [isFloatingBottomAction]);
+
   const handleEnableMotion = async () => {
     try {
       const requestPermission = (window.DeviceOrientationEvent as unknown as {
@@ -1976,8 +2046,12 @@ export default function PetProfileScene({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-screen overflow-hidden"
-      style={{ cursor: isEditMode ? 'default' : 'none', background: baseBg }}
+      className="relative w-full h-screen overflow-hidden flex flex-col"
+      style={{
+        cursor: isEditMode ? 'default' : 'none',
+        background: baseBg,
+        boxSizing: 'border-box',
+      }}
     >
       {!isEditMode && isMobileInput && needsMotionPermission && (
         <div className="absolute top-4 right-4 z-50">
@@ -1995,8 +2069,12 @@ export default function PetProfileScene({
           </button>
         </div>
       )}
-      <div className="flex items-center justify-center w-full h-full">
-        <BackgroundLayer mouseX={mousePosition.x} mouseY={mousePosition.y} />
+      <BackgroundLayer mouseX={mousePosition.x} mouseY={mousePosition.y} />
+      <div
+        className={`relative flex-1 min-h-0 flex justify-center w-full ${
+          isFloatingBottomAction ? 'items-center pt-3 pb-3' : hasBottomAction ? 'items-start pt-4' : 'items-center'
+        }`}
+      >
         <PetProfileCard
           mouseX={mousePosition.x}
           mouseY={mousePosition.y}
@@ -2012,11 +2090,43 @@ export default function PetProfileScene({
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}
           isUploadingPhoto={isUploadingPhoto}
+          alignTop={hasBottomAction && !isFloatingBottomAction}
+          viewportBottomReserve={isFloatingBottomAction ? 138 : 0}
         />
         {!isMobileInput && !isEditMode && (
           <CustomCursor x={mousePosition.x} y={mousePosition.y} isVisible={isMouseInside} />
         )}
       </div>
+      {bottomAction && !isFloatingBottomAction && (
+        <div
+          className="relative z-40 w-full flex justify-center"
+          style={{
+            paddingLeft: '16px',
+            paddingRight: '16px',
+            paddingTop: '16px',
+            paddingBottom: `${Math.max(14, bottomReservedHeight)}px`,
+          }}
+        >
+          <div style={{ width: 'min(92vw, 520px)' }}>{bottomAction}</div>
+        </div>
+      )}
+      {bottomAction && isFloatingBottomAction && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-4"
+          style={{ paddingBottom: `calc(${Math.max(14, bottomReservedHeight)}px + env(safe-area-inset-bottom))` }}
+        >
+          <div
+            className="pointer-events-auto transition-all duration-300 ease-out"
+            style={{
+              width: 'min(92vw, 520px)',
+              transform: isBottomActionVisible ? 'translateY(0)' : 'translateY(calc(100% + 18px))',
+              opacity: isBottomActionVisible ? 1 : 0,
+            }}
+          >
+            {bottomAction}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

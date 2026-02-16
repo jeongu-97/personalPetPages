@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, PlusCircle } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import PetProfileScene from '../components/PetProfileScene';
 import { buildDefaultFunFacts } from '../lib/funFacts';
@@ -60,6 +60,58 @@ const extensionFromMime = (mime: string) => {
   if (mime.includes('gif')) return 'gif';
   return 'jpg';
 };
+
+const isValidHexColor = (value?: string) =>
+  typeof value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+
+const resolveCardBackground = (gender: string, backgroundColor?: string) => {
+  if (isValidHexColor(backgroundColor)) return backgroundColor.trim();
+  return gender === '암컷' ? '#f7e5ef' : '#e0e5ec';
+};
+
+const resolveAccentColor = (gender: string, accentColor?: string) => {
+  if (isValidHexColor(accentColor)) return accentColor.trim();
+  if (gender === '암컷') return '#ec4899';
+  if (gender === '수컷') return '#3b82f6';
+  return '#a855f7';
+};
+
+type Rgb = { r: number; g: number; b: number };
+
+const hexToRgb = (hex: string): Rgb => {
+  const raw = hex.replace('#', '').trim();
+  const normalized =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((ch) => `${ch}${ch}`)
+          .join('')
+      : raw;
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+};
+
+const rgbToHex = ({ r, g, b }: Rgb) =>
+  `#${[r, g, b]
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0'))
+    .join('')}`;
+
+const mixHex = (hex: string, target: Rgb, ratio: number) => {
+  const base = hexToRgb(hex);
+  const t = Math.max(0, Math.min(1, ratio));
+  return rgbToHex({
+    r: base.r + (target.r - base.r) * t,
+    g: base.g + (target.g - base.g) * t,
+    b: base.b + (target.b - base.b) * t,
+  });
+};
+
+const lightenHex = (hex: string, ratio: number) => mixHex(hex, { r: 255, g: 255, b: 255 }, ratio);
+const darkenHex = (hex: string, ratio: number) => mixHex(hex, { r: 0, g: 0, b: 0 }, ratio);
 
 export default function DraftProfilePage() {
   const { draftId } = useParams();
@@ -273,39 +325,52 @@ export default function DraftProfilePage() {
     );
   }
 
+  const baseBg = resolveCardBackground(draftPet.gender, draftPet.backgroundColor);
+  const pointColor = resolveAccentColor(draftPet.gender, draftPet.accentColor);
+  const swappedInsetButtonShadow = `inset 8px 8px 16px ${lightenHex(
+    baseBg,
+    0.38
+  )}, inset -8px -8px 16px ${darkenHex(baseBg, 0.22)}`;
+  const newProfileButton = (
+    <button
+      type="button"
+      onClick={() => navigate('/start')}
+      className="w-full rounded-2xl text-gray-700"
+      style={{
+        background: baseBg,
+        boxShadow: swappedInsetButtonShadow,
+        padding: 'clamp(10px, 1.5vh, 16px)',
+        minHeight: 'clamp(46px, 6.8vh, 56px)',
+        fontSize: 'clamp(13px, 2vh, 16px)',
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        columnGap: '8px',
+      }}
+    >
+      <PlusCircle
+        aria-hidden="true"
+        style={{
+          width: 'clamp(16px, 2.5vh, 20px)',
+          height: 'clamp(16px, 2.5vh, 20px)',
+          color: pointColor,
+        }}
+      />
+      <span>새 프로필 만들기</span>
+    </button>
+  );
+
   return (
     <div className="min-h-screen">
       <PetProfileScene
         petData={draftPet}
+        bottomAction={newProfileButton}
+        bottomActionMode="floating-on-scroll"
         onShareRequest={() => openLoginModal('share')}
         onCommentRequest={() => openLoginModal('comment')}
         onEditRequest={() => openLoginModal('edit')}
       />
-      <div
-        style={{
-          position: 'fixed',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          bottom: '18px',
-          width: 'min(92vw, 520px)',
-          zIndex: 74,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => navigate('/start')}
-          className="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-gray-700"
-          style={{
-            background: 'rgba(242, 243, 245, 0.88)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            border: '1.5px solid rgba(211, 215, 222, 0.95)',
-            boxShadow: '8px 8px 16px rgba(194, 200, 209, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8)',
-          }}
-        >
-          새 프로필 만들기
-        </button>
-      </div>
       {message && !isLoginModalOpen && (
         <div
           style={{
