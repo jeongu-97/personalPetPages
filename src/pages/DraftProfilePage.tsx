@@ -198,6 +198,7 @@ export default function DraftProfilePage() {
           redirectTo: `${window.location.origin}/draft/${encodeURIComponent(
             draftId
           )}?${nextParams.toString()}`,
+          scopes: 'profile_nickname profile_image',
         },
       });
       if (error) {
