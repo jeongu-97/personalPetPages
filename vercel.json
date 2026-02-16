@@ -1,7 +1,10 @@
 {
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
+    { "source": "/start", "destination": "/index.html" },
     { "source": "/admin", "destination": "/index.html" },
+    { "source": "/draft/(.*)", "destination": "/index.html" },
+    { "source": "/edit/(.*)", "destination": "/index.html" },
     { "source": "/([a-zA-Z0-9-]+)", "destination": "/index.html" }
   ]
 }
