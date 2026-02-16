@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Session } from '@supabase/supabase-js';
-import { Download, PlusCircle, Share2 } from 'lucide-react';
+import { Download, LayoutGrid, PlusCircle, Share2 } from 'lucide-react';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
 import { PetComment, PetProfileData } from '../types/pet';
@@ -409,6 +409,34 @@ export default function PetProfilePage() {
                 }}
               />
               <span>이미지로 저장</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/my-profiles')}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <LayoutGrid
+                aria-hidden="true"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>내 프로필 목록 보러가기</span>
             </button>
 
             <button

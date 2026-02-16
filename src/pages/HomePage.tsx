@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Camera, Share2, Sparkles } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Camera, LayoutGrid, Share2, Sparkles } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
 const previewImage =
   'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=1200&q=80';
@@ -29,7 +30,10 @@ const featureCards = [
 ];
 
 export default function HomePage() {
+  const navigate = useNavigate();
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [isMovingToMyProfiles, setIsMovingToMyProfiles] = useState(false);
+  const [myProfilesEntryError, setMyProfilesEntryError] = useState<string | null>(null);
   const neumoBg = '#faf9f2';
   const neumoShadow = '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff';
   const neumoShadowSoft = '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff';
@@ -57,6 +61,42 @@ export default function HomePage() {
 
   const togglePreviewModal = () => {
     setIsPreviewModalOpen((prev) => !prev);
+  };
+
+  const handleGoMyProfiles = async () => {
+    if (typeof window === 'undefined' || isMovingToMyProfiles) return;
+
+    setIsMovingToMyProfiles(true);
+    setMyProfilesEntryError(null);
+
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      setMyProfilesEntryError(sessionError.message || '로그인 상태를 확인하지 못했어요.');
+      setIsMovingToMyProfiles(false);
+      return;
+    }
+
+    if (data.session) {
+      navigate('/my-profiles');
+      setIsMovingToMyProfiles(false);
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'kakao',
+      options: {
+        redirectTo: `${window.location.origin}/my-profiles`,
+        scopes: 'profile_nickname profile_image',
+        queryParams: {
+          scope: 'profile_nickname profile_image',
+        },
+      },
+    });
+
+    if (error) {
+      setMyProfilesEntryError(error.message || '로그인 이동에 실패했어요.');
+      setIsMovingToMyProfiles(false);
+    }
   };
 
   return (
@@ -202,25 +242,55 @@ export default function HomePage() {
         </section>
 
         <section style={{ marginTop: '18px' }}>
-          <Link
-            to="/start"
-            className="glossy-cta"
-            style={{
-              display: 'inline-flex',
-              width: '100%',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '18px',
-              padding: '14px 18px',
-              fontSize: '19px',
-              fontWeight: 700,
-              color: '#5f4124',
-              background: 'linear-gradient(90deg, #f4d88f 0%, #edc17a 100%)',
-              boxShadow: '8px 8px 16px #d8c190, -8px -8px 16px #fff8e8',
-            }}
-          >
-            <span>프로필 만들기 시작하기</span>
-          </Link>
+          <div style={{ display: 'grid', gap: '10px' }}>
+            <Link
+              to="/start"
+              className="glossy-cta"
+              style={{
+                display: 'inline-flex',
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '18px',
+                padding: '14px 18px',
+                fontSize: '19px',
+                fontWeight: 700,
+                color: '#5f4124',
+                background: 'linear-gradient(90deg, #f4d88f 0%, #edc17a 100%)',
+                boxShadow: '8px 8px 16px #d8c190, -8px -8px 16px #fff8e8',
+              }}
+            >
+              <span>프로필 만들기 시작하기</span>
+            </Link>
+            <button
+              type="button"
+              onClick={() => void handleGoMyProfiles()}
+              disabled={isMovingToMyProfiles}
+              style={{
+                display: 'inline-flex',
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                borderRadius: '16px',
+                padding: '12px 16px',
+                fontSize: '16px',
+                fontWeight: 700,
+                color: '#4b5563',
+                background: neumoBg,
+                boxShadow: neumoShadowSoft,
+                opacity: isMovingToMyProfiles ? 0.7 : 1,
+              }}
+            >
+              <LayoutGrid size={16} />
+              <span>{isMovingToMyProfiles ? '로그인 확인 중...' : '내 프로필 목록 보러가기'}</span>
+            </button>
+          </div>
+          {myProfilesEntryError && (
+            <p style={{ margin: '8px 0 0', textAlign: 'center', fontSize: '13px', color: '#dc2626' }}>
+              {myProfilesEntryError}
+            </p>
+          )}
           <p style={{ margin: '10px 0 0', textAlign: 'center', fontSize: '15px', color: '#6b7280' }}>
             무료로 시작하고 언제든 수정 가능해요
           </p>
