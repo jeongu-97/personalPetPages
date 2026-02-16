@@ -25,7 +25,7 @@ export const buildDefaultFunFacts = (
   const birthDate = formatBirthDateForFunFacts(pet.birthDate);
 
   return [
-    `${name}(가)를 처음 만난다면 ${favoriteToy}(을)를 준비해보세요!`,
+    `${name}(을)를 처음 만난다면 ${favoriteToy}(을)를 준비해보세요!`,
     personalityLine,
     birthDate
       ? `생일을 축하해주고 싶다면 ${birthDate}을 기억해주세요!`

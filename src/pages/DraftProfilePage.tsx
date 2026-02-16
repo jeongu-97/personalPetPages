@@ -365,6 +365,7 @@ export default function DraftProfilePage() {
     <div className="min-h-screen">
       <PetProfileScene
         petData={draftPet}
+        onOpenActionButtons={() => setIsNewProfileButtonVisible(true)}
         showCardShareSaveButtons={false}
         externalSaveImageTrigger={saveImageTrigger}
         onShareRequest={handleProtectedAction}

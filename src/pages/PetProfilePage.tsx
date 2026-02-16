@@ -4,7 +4,7 @@ import { Session } from '@supabase/supabase-js';
 import { Download, PlusCircle, Share2 } from 'lucide-react';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
-import { PetProfileData } from '../types/pet';
+import { PetComment, PetProfileData } from '../types/pet';
 import { PetRecord, toPetProfile } from '../lib/petData';
 import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
 import { supabase } from '../lib/supabaseClient';
@@ -61,6 +61,23 @@ const mixHex = (hex: string, target: Rgb, ratio: number) => {
 
 const lightenHex = (hex: string, ratio: number) => mixHex(hex, { r: 255, g: 255, b: 255 }, ratio);
 const darkenHex = (hex: string, ratio: number) => mixHex(hex, { r: 0, g: 0, b: 0 }, ratio);
+
+const toCommentArray = (value: unknown): PetComment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const author = typeof (item as { author?: unknown }).author === 'string'
+        ? (item as { author: string }).author.trim()
+        : '';
+      const text = typeof (item as { text?: unknown }).text === 'string'
+        ? (item as { text: string }).text.trim()
+        : '';
+      if (!text) return null;
+      return { author, text };
+    })
+    .filter((item): item is PetComment => Boolean(item));
+};
 
 export default function PetProfilePage() {
   const { slug } = useParams();
@@ -262,6 +279,44 @@ export default function PetProfilePage() {
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleCommentSubmit = async ({ author, text }: { author: string; text: string }) => {
+    if (!pet || !token) {
+      return { ok: false, message: '유효한 공유 토큰이 없어요.' };
+    }
+
+    try {
+      const response = await fetch('/api/pet-comment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          slug: pet.slug,
+          token,
+          author,
+          text,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { comments?: unknown; error?: string }
+        | null;
+
+      if (!response.ok) {
+        return { ok: false, message: payload?.error || '기록 등록에 실패했어요.' };
+      }
+
+      if (payload?.comments !== undefined) {
+        const nextComments = toCommentArray(payload.comments);
+        setPet((prev) => (prev ? { ...prev, comments: nextComments } : prev));
+      }
+
+      return { ok: true };
+    } catch {
+      return { ok: false, message: '네트워크 오류로 기록 등록에 실패했어요.' };
+    }
+  };
+
   if (state === 'ready' && pet) {
     const editLink = `/edit/${encodeURIComponent(pet.slug)}${
       token ? `?token=${encodeURIComponent(token)}` : ''
@@ -279,6 +334,8 @@ export default function PetProfilePage() {
           petData={pet}
           editLink={editLink}
           onEditRequest={handleEditRequest}
+          onOpenActionButtons={() => setIsActionButtonsVisible(true)}
+          onCommentSubmit={handleCommentSubmit}
           showCardShareSaveButtons={false}
           externalSaveImageTrigger={saveImageTrigger}
         />

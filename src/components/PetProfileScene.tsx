@@ -10,6 +10,8 @@ interface ParallaxProps {
 }
 
 type SceneMode = 'view' | 'edit';
+type CommentSubmitPayload = { author: string; text: string };
+type CommentSubmitResult = { ok: boolean; message?: string };
 
 type PetProfileSceneProps = {
   petData: PetProfileData;
@@ -17,9 +19,11 @@ type PetProfileSceneProps = {
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
   onEditRequest?: () => void;
+  onOpenActionButtons?: () => void;
   showEditMenu?: boolean;
   onShareRequest?: () => void;
   onCommentRequest?: () => void;
+  onCommentSubmit?: (payload: CommentSubmitPayload) => Promise<CommentSubmitResult | void> | CommentSubmitResult | void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -188,9 +192,11 @@ function PetProfileCard({
   onPetChange,
   editLink,
   onEditRequest,
+  onOpenActionButtons,
   showEditMenu = true,
   onShareRequest,
   onCommentRequest,
+  onCommentSubmit,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -203,9 +209,11 @@ function PetProfileCard({
   onPetChange?: (nextPet: PetProfileData) => void;
   editLink?: string;
   onEditRequest?: () => void;
+  onOpenActionButtons?: () => void;
   showEditMenu?: boolean;
   onShareRequest?: () => void;
   onCommentRequest?: () => void;
+  onCommentSubmit?: (payload: CommentSubmitPayload) => Promise<CommentSubmitResult | void> | CommentSubmitResult | void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -232,6 +240,11 @@ function PetProfileCard({
   const [isFlipping, setIsFlipping] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [isEditMenuOpen, setIsEditMenuOpen] = useState(false);
+  const [isCommentComposerOpen, setIsCommentComposerOpen] = useState(false);
+  const [commentAuthorInput, setCommentAuthorInput] = useState('');
+  const [commentTextInput, setCommentTextInput] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [commentSubmitError, setCommentSubmitError] = useState<string | null>(null);
   const isEditMode = mode === 'edit';
   const hasMainPhoto = Boolean(pet.mainPhoto?.trim());
   const petKind = normalizePetKind(pet.petKind) || 'unknown';
@@ -316,22 +329,8 @@ function PetProfileCard({
     patchPet({ funFacts: nextFacts });
   };
 
-  const commitComments = (event: any) => {
-    const raw = (event.currentTarget.textContent ?? '').trim();
-    const rows = raw
-      .split('\n')
-      .map((line: string) => line.trim())
-      .filter((line: string) => line.length > 0);
-    const nextComments = rows.map((row: string) => {
-      const separator = row.indexOf(':');
-      if (separator > 0) {
-        return {
-          author: row.slice(0, separator).trim(),
-          text: row.slice(separator + 1).trim(),
-        };
-      }
-      return { author: '', text: row };
-    });
+  const handleDeleteCommentAt = (index: number) => {
+    const nextComments = pet.comments.filter((_, currentIndex) => currentIndex !== index);
     patchPet({ comments: nextComments });
   };
 
@@ -540,6 +539,47 @@ function PetProfileCard({
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const defaultPublicComment = `펫프로필: 귀여운 ${pet.name || '친구'}, 반가워요!`;
+
+  const handleOpenCommentComposer = (event: any) => {
+    stopCardFlipFromChild(event);
+    if (onCommentSubmit) {
+      setCommentSubmitError(null);
+      setIsCommentComposerOpen((prev) => !prev);
+      return;
+    }
+    onCommentRequest?.();
+  };
+
+  const handleSubmitComment = async (event: any) => {
+    stopCardFlipFromChild(event);
+    if (!onCommentSubmit || isSubmittingComment) return;
+
+    const text = commentTextInput.trim();
+    const author = commentAuthorInput.trim();
+    if (!text) {
+      setCommentSubmitError('기록 내용을 입력해 주세요.');
+      return;
+    }
+
+    setCommentSubmitError(null);
+    setIsSubmittingComment(true);
+    try {
+      const result = await onCommentSubmit({ author, text });
+      if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+        setCommentSubmitError(result.message || '기록 등록에 실패했어요.');
+        return;
+      }
+      setCommentAuthorInput('');
+      setCommentTextInput('');
+      setIsCommentComposerOpen(false);
+    } catch {
+      setCommentSubmitError('기록 등록에 실패했어요.');
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  };
+
   const toggleEditMenu = (event: any) => {
     stopCardFlipFromChild(event);
     setIsEditMenuOpen((prev) => !prev);
@@ -562,6 +602,18 @@ function PetProfileCard({
       token ? `?token=${encodeURIComponent(token)}` : ''
     }`;
     window.location.href = fallbackLink;
+  };
+
+  const openActionButtonsFromMenu = (event: any) => {
+    stopCardFlipFromChild(event);
+    setIsEditMenuOpen(false);
+    if (onOpenActionButtons) {
+      onOpenActionButtons();
+      return;
+    }
+    if (onShareRequest) {
+      onShareRequest();
+    }
   };
 
   const renderTopLeftControls = () =>
@@ -791,6 +843,24 @@ function PetProfileCard({
           pointerEvents: isEditMenuOpen ? 'auto' : 'none',
         }}
       >
+        <button
+          type="button"
+          role="menuitem"
+          onClick={openActionButtonsFromMenu}
+          className="w-full"
+          style={{
+            borderRadius: '7px',
+            height: '30px',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#111827',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          공유하기
+        </button>
         <button
           type="button"
           role="menuitem"
@@ -1293,8 +1363,13 @@ function PetProfileCard({
           >
             <div className="flex items-start gap-2 text-gray-700">
               <Heart
-                className="text-red-500 mt-0.5 shrink-0"
-                style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+                className="mt-0.5 shrink-0"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: '#ef4444',
+                  fill: '#ef4444',
+                }}
               />
               <div className="min-w-0">
                 <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
@@ -1333,8 +1408,13 @@ function PetProfileCard({
           >
             <div className="flex items-start gap-2 text-gray-700">
               <Phone
-                className="text-green-500 mt-0.5 shrink-0"
-                style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+                className="mt-0.5 shrink-0"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: '#22c55e',
+                  fill: '#22c55e',
+                }}
               />
               <div className="min-w-0">
                 <div className="text-gray-500 mb-1" style={{ fontSize: 'clamp(9px, 1.4vh, 12px)' }}>
@@ -1472,39 +1552,81 @@ function PetProfileCard({
         >
           <div className="flex items-center gap-2 text-gray-700 mb-2">
             <MessageCircle
-              className="shrink-0 text-gray-600"
-              style={{ width: 'clamp(16px, 2.5vh, 20px)', height: 'clamp(16px, 2.5vh, 20px)' }}
+              className="shrink-0"
+              style={{
+                width: 'clamp(16px, 2.5vh, 20px)',
+                height: 'clamp(16px, 2.5vh, 20px)',
+                color: '#6b7280',
+                fill: '#6b7280',
+              }}
             />
             <p className="font-semibold" style={{ fontSize: 'clamp(16px, 2.4vh, 22px)' }}>
-              댓글
+              기록
             </p>
           </div>
 
           {isEditMode ? (
-            <p
-              className="text-gray-700 leading-relaxed"
-              contentEditable
-              suppressContentEditableWarning
-              onPointerDown={stopCardFlipFromChild}
-              onBlur={commitComments}
-              style={{
-                fontSize: 'clamp(11px, 1.8vh, 14px)',
-                whiteSpace: 'pre-wrap',
-                outline: '1px dashed rgba(107, 114, 128, 0.35)',
-                borderRadius: '8px',
-                padding: '6px 8px',
-                cursor: 'text',
-                minHeight: '88px',
-              }}
-            >
-              {(
-                pet.comments.length
-                  ? pet.comments.map((comment) =>
-                      comment.author ? `${comment.author}: ${comment.text}` : comment.text
-                    )
-                  : ['댓글을 입력해 주세요.']
-              ).join('\n')}
-            </p>
+            <>
+              {pet.comments.length > 0 ? (
+                <div className="space-y-2">
+                  {pet.comments.map((comment, index) => (
+                    <div
+                      key={`edit-comment-${index}`}
+                      onPointerDown={stopCardFlipFromChild}
+                      onPointerUp={stopCardFlipFromChild}
+                      onPointerCancel={stopCardFlipFromChild}
+                      style={{
+                        borderRadius: '10px',
+                        border: '1px solid rgba(148, 163, 184, 0.35)',
+                        background: 'rgba(255, 255, 255, 0.65)',
+                        padding: '8px 10px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                      }}
+                    >
+                      <p
+                        className="text-gray-700 leading-relaxed"
+                        style={{
+                          fontSize: 'clamp(11px, 1.8vh, 14px)',
+                          whiteSpace: 'pre-wrap',
+                          flex: 1,
+                        }}
+                      >
+                        {comment.author ? `${comment.author}: ${comment.text}` : comment.text}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          stopCardFlipFromChild(event);
+                          handleDeleteCommentAt(index);
+                        }}
+                        style={{
+                          minWidth: '44px',
+                          height: '28px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(239, 68, 68, 0.45)',
+                          background: 'rgba(254, 226, 226, 0.85)',
+                          color: '#dc2626',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p
+                  className="text-gray-500"
+                  style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}
+                >
+                  삭제할 기록이 없어요.
+                </p>
+              )}
+            </>
           ) : (
             <>
               {[
@@ -1512,11 +1634,7 @@ function PetProfileCard({
                   ? pet.comments.map((comment) =>
                       comment.author ? `${comment.author}: ${comment.text}` : comment.text
                     )
-                  : [
-                      `이웃집 보호자: 너무 귀여워요! 우리 아이랑 친구 했으면 좋겠어요 🥰`,
-                      `강아지 러버: ${pet.name || '아이'} 생일 축하해요~ 🎉🎂`,
-                      `반려인 모임: ${pet.personality?.split('\n')[0]?.trim() || '사랑스러운 성격'}이라 더 매력적이네요!`,
-                    ]),
+                  : [defaultPublicComment]),
               ].map((text, index) => (
                 <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
                   <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>
@@ -1533,10 +1651,7 @@ function PetProfileCard({
                 onPointerDown={stopCardFlipFromChild}
                 onPointerUp={stopCardFlipFromChild}
                 onPointerCancel={stopCardFlipFromChild}
-                onClick={(event) => {
-                  stopCardFlipFromChild(event);
-                  onCommentRequest?.();
-                }}
+                onClick={handleOpenCommentComposer}
                 className="w-full rounded-2xl text-white"
                 style={{
                   marginTop: 'clamp(10px, 1.5vh, 16px)',
@@ -1554,10 +1669,115 @@ function PetProfileCard({
               >
                 <MessageCircle
                   className="shrink-0"
-                  style={{ width: 'clamp(15px, 2.2vh, 18px)', height: 'clamp(15px, 2.2vh, 18px)' }}
+                  style={{
+                    width: 'clamp(15px, 2.2vh, 18px)',
+                    height: 'clamp(15px, 2.2vh, 18px)',
+                    fill: '#ffffff',
+                  }}
                 />
-                <span>댓글 작성</span>
+                <span>기록 남기기</span>
               </button>
+
+              {onCommentSubmit && isCommentComposerOpen && (
+                <div
+                  onPointerDown={stopCardFlipFromChild}
+                  onPointerUp={stopCardFlipFromChild}
+                  onPointerCancel={stopCardFlipFromChild}
+                  style={{
+                    marginTop: '10px',
+                    padding: '10px',
+                    borderRadius: '14px',
+                    background: 'rgba(255, 255, 255, 0.64)',
+                    border: '1px solid rgba(148, 163, 184, 0.4)',
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={commentAuthorInput}
+                    onChange={(event) => setCommentAuthorInput(event.target.value)}
+                    placeholder="이름(선택)"
+                    className="w-full"
+                    style={{
+                      height: '34px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(148, 163, 184, 0.4)',
+                      background: 'rgba(255, 255, 255, 0.9)',
+                      padding: '0 10px',
+                      fontSize: '12px',
+                      color: '#374151',
+                    }}
+                  />
+                  <textarea
+                    value={commentTextInput}
+                    onChange={(event) => setCommentTextInput(event.target.value)}
+                    placeholder="기록 내용을 입력해 주세요."
+                    className="w-full mt-2"
+                    style={{
+                      minHeight: '72px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(148, 163, 184, 0.4)',
+                      background: 'rgba(255, 255, 255, 0.9)',
+                      padding: '8px 10px',
+                      fontSize: '12px',
+                      lineHeight: 1.45,
+                      color: '#374151',
+                      resize: 'vertical',
+                    }}
+                  />
+                  {commentSubmitError && (
+                    <p
+                      style={{
+                        marginTop: '6px',
+                        fontSize: '12px',
+                        color: '#dc2626',
+                      }}
+                    >
+                      {commentSubmitError}
+                    </p>
+                  )}
+                  <div className="mt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        stopCardFlipFromChild(event);
+                        setIsCommentComposerOpen(false);
+                        setCommentSubmitError(null);
+                      }}
+                      disabled={isSubmittingComment}
+                      style={{
+                        height: '34px',
+                        padding: '0 12px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(148, 163, 184, 0.5)',
+                        background: 'rgba(255, 255, 255, 0.8)',
+                        color: '#4b5563',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmitComment}
+                      disabled={isSubmittingComment || !commentTextInput.trim()}
+                      style={{
+                        height: '34px',
+                        padding: '0 12px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: commentGradient,
+                        color: '#fff',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        opacity: isSubmittingComment || !commentTextInput.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {isSubmittingComment ? '등록 중...' : '등록'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1839,9 +2059,11 @@ export default function PetProfileScene({
   onPetChange,
   editLink,
   onEditRequest,
+  onOpenActionButtons,
   showEditMenu = true,
   onShareRequest,
   onCommentRequest,
+  onCommentSubmit,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -2025,9 +2247,11 @@ export default function PetProfileScene({
           onPetChange={onPetChange}
           editLink={editLink}
           onEditRequest={onEditRequest}
+          onOpenActionButtons={onOpenActionButtons}
           showEditMenu={showEditMenu}
           onShareRequest={onShareRequest}
           onCommentRequest={onCommentRequest}
+          onCommentSubmit={onCommentSubmit}
           onSaveRequest={onSaveRequest}
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}
