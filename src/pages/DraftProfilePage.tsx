@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
-import { MessageCircle, PlusCircle } from 'lucide-react';
+import { PlusCircle, Share2, Download } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import PetProfileScene from '../components/PetProfileScene';
 import { buildDefaultFunFacts } from '../lib/funFacts';
@@ -122,11 +122,9 @@ export default function DraftProfilePage() {
   const [session, setSession] = useState<Session | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginIntentLabel, setLoginIntentLabel] = useState('편집');
   const [isNewProfileButtonVisible, setIsNewProfileButtonVisible] = useState(false);
+  const [saveImageTrigger, setSaveImageTrigger] = useState(0);
   const publishTriggeredRef = useRef(false);
-  const autoModalOpenedRef = useRef(false);
   const ctaTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const shouldPublishAfterLogin = searchParams.get('post_login') === 'publish';
@@ -267,18 +265,9 @@ export default function DraftProfilePage() {
     }
   };
 
-  const openLoginModal = (intent: 'share' | 'comment' | 'edit') => {
+  const handleProtectedAction = () => {
     setMessage(null);
-    setIsLoginModalOpen(true);
-    if (intent === 'share') {
-      setLoginIntentLabel('프로필 공유');
-      return;
-    }
-    if (intent === 'comment') {
-      setLoginIntentLabel('댓글 작성');
-      return;
-    }
-    setLoginIntentLabel('편집');
+    void publishDraft();
   };
 
   useEffect(() => {
@@ -288,15 +277,6 @@ export default function DraftProfilePage() {
     publishDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldPublishAfterLogin, session, draftPet]);
-
-  useEffect(() => {
-    if (state !== 'ready' || !draftPet) return;
-    if (shouldPublishAfterLogin) return;
-    if (autoModalOpenedRef.current) return;
-    autoModalOpenedRef.current = true;
-    setLoginIntentLabel('편집');
-    setIsLoginModalOpen(true);
-  }, [state, draftPet, shouldPublishAfterLogin]);
 
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
@@ -381,9 +361,11 @@ export default function DraftProfilePage() {
     <div className="min-h-screen">
       <PetProfileScene
         petData={draftPet}
-        onShareRequest={() => openLoginModal('share')}
-        onCommentRequest={() => openLoginModal('comment')}
-        onEditRequest={() => openLoginModal('edit')}
+        showCardShareSaveButtons={false}
+        externalSaveImageTrigger={saveImageTrigger}
+        onShareRequest={handleProtectedAction}
+        onCommentRequest={handleProtectedAction}
+        onEditRequest={handleProtectedAction}
       />
       <div
         style={{
@@ -400,41 +382,99 @@ export default function DraftProfilePage() {
           pointerEvents: isNewProfileButtonVisible ? 'auto' : 'none',
         }}
       >
-        <button
-          type="button"
-          onClick={() => navigate('/start')}
-          className="w-full rounded-2xl text-gray-700"
-          style={{
-            background: baseBg,
-            boxShadow: swappedInsetButtonShadow,
-            padding: 'clamp(10px, 1.5vh, 16px)',
-            minHeight: 'clamp(46px, 6.8vh, 56px)',
-            fontSize: 'clamp(13px, 2vh, 16px)',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            columnGap: '8px',
-          }}
-        >
-          <PlusCircle
-            aria-hidden="true"
+        <div className="flex flex-col" style={{ rowGap: '10px' }}>
+          <button
+            type="button"
+            onClick={handleProtectedAction}
+            className="w-full rounded-2xl text-gray-700"
             style={{
-              width: 'clamp(16px, 2.5vh, 20px)',
-              height: 'clamp(16px, 2.5vh, 20px)',
-              color: pointColor,
+              background: baseBg,
+              boxShadow: swappedInsetButtonShadow,
+              padding: 'clamp(10px, 1.5vh, 16px)',
+              minHeight: 'clamp(46px, 6.8vh, 56px)',
+              fontSize: 'clamp(13px, 2vh, 16px)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              columnGap: '8px',
             }}
-          />
-          <span>새 프로필 만들기</span>
-        </button>
+          >
+            <Share2
+              aria-hidden="true"
+              style={{
+                width: 'clamp(16px, 2.5vh, 20px)',
+                height: 'clamp(16px, 2.5vh, 20px)',
+                color: pointColor,
+              }}
+            />
+            <span>프로필 공유하기</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSaveImageTrigger((prev) => prev + 1)}
+            className="w-full rounded-2xl text-gray-700"
+            style={{
+              background: baseBg,
+              boxShadow: swappedInsetButtonShadow,
+              padding: 'clamp(10px, 1.5vh, 16px)',
+              minHeight: 'clamp(46px, 6.8vh, 56px)',
+              fontSize: 'clamp(13px, 2vh, 16px)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              columnGap: '8px',
+            }}
+          >
+            <Download
+              aria-hidden="true"
+              style={{
+                width: 'clamp(16px, 2.5vh, 20px)',
+                height: 'clamp(16px, 2.5vh, 20px)',
+                color: pointColor,
+              }}
+            />
+            <span>이미지로 저장</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/start')}
+            className="w-full rounded-2xl text-gray-700"
+            style={{
+              background: baseBg,
+              boxShadow: swappedInsetButtonShadow,
+              padding: 'clamp(10px, 1.5vh, 16px)',
+              minHeight: 'clamp(46px, 6.8vh, 56px)',
+              fontSize: 'clamp(13px, 2vh, 16px)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              columnGap: '8px',
+            }}
+          >
+            <PlusCircle
+              aria-hidden="true"
+              style={{
+                width: 'clamp(16px, 2.5vh, 20px)',
+                height: 'clamp(16px, 2.5vh, 20px)',
+                color: pointColor,
+              }}
+            />
+            <span>새 프로필 만들기</span>
+          </button>
+        </div>
       </div>
-      {message && !isLoginModalOpen && (
+      {message && (
         <div
           style={{
             position: 'fixed',
             left: '50%',
             transform: 'translateX(-50%)',
-            bottom: '88px',
+            bottom: isNewProfileButtonVisible ? '220px' : '88px',
             zIndex: 75,
             maxWidth: '88vw',
             background: 'rgba(239, 68, 68, 0.92)',
@@ -445,97 +485,6 @@ export default function DraftProfilePage() {
           }}
         >
           {message}
-        </div>
-      )}
-      {isLoginModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            background: 'rgba(17, 24, 39, 0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px',
-          }}
-          onClick={() => setIsLoginModalOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-md rounded-3xl"
-            style={{
-              position: 'relative',
-              background: '#f2f3f5',
-              border: '1.5px solid #d3d7de',
-              boxShadow: '20px 20px 40px #c2c8d1, -20px -20px 40px #ffffff',
-              padding: '22px',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setIsLoginModalOpen(false)}
-              aria-label="닫기"
-              style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                width: '28px',
-                height: '28px',
-                borderRadius: '999px',
-                border: '1px solid #d3d7de',
-                background: '#f2f3f5',
-                color: '#4b5563',
-                fontSize: '16px',
-                fontWeight: 700,
-                lineHeight: 1,
-              }}
-            >
-              ×
-            </button>
-            <h2 className="text-gray-800 font-semibold" style={{ fontSize: '21px' }}>
-              카카오 로그인하고 프로필 완성하기
-            </h2>
-            <p className="text-gray-600 mt-2" style={{ fontSize: '14px', lineHeight: 1.5 }}>
-              {loginIntentLabel} 기능을 사용하려면 카카오 로그인 후 프로필을 먼저 게시해야 해요.
-            </p>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={publishDraft}
-                disabled={isPublishing}
-                className="w-full rounded-xl px-4 py-3 text-sm font-semibold"
-                style={{
-                  color: '#2f2a00',
-                  background: '#FEE500',
-                  border: '1px solid #e5cc00',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 14px rgba(0, 0, 0, 0.08)',
-                  opacity: isPublishing ? 0.7 : 1,
-                  cursor: isPublishing ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                }}
-              >
-                {isPublishing ? (
-                  '처리 중...'
-                ) : (
-                  <>
-                    <MessageCircle size={16} style={{ fill: '#111', stroke: '#111' }} />
-                    <span>{session ? '프로필 게시하기' : '카카오톡으로 간편로그인'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-            {message && (
-              <p className="text-center text-red-500 mt-3" style={{ fontSize: '13px' }}>
-                {message}
-              </p>
-            )}
-          </div>
         </div>
       )}
     </div>

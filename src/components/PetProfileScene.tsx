@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { buildDefaultFunFacts } from '../lib/funFacts';
@@ -24,6 +24,8 @@ type PetProfileSceneProps = {
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
+  showCardShareSaveButtons?: boolean;
+  externalSaveImageTrigger?: number;
 };
 
 type DisplayPetKind = PetKind | 'unknown';
@@ -193,6 +195,8 @@ function PetProfileCard({
   isSaving = false,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
+  showCardShareSaveButtons = true,
+  externalSaveImageTrigger = 0,
 }: ParallaxProps & {
   pet: PetProfileData;
   mode: SceneMode;
@@ -206,6 +210,8 @@ function PetProfileCard({
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
+  showCardShareSaveButtons?: boolean;
+  externalSaveImageTrigger?: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const frontCaptureRef = useRef<HTMLDivElement>(null);
@@ -760,47 +766,50 @@ function PetProfileCard({
           <circle cx="10" cy="16" r="2" fill="#ffffff" stroke="#111827" strokeWidth="1" vectorEffect="non-scaling-stroke" />
         </svg>
       </button>
-      {isEditMenuOpen && (
-        <div
-          role="menu"
-          onPointerDown={stopCardFlipFromChild}
-          onPointerUp={stopCardFlipFromChild}
-          onPointerCancel={stopCardFlipFromChild}
-          onClick={stopCardFlipFromChild}
+      <div
+        role="menu"
+        onPointerDown={stopCardFlipFromChild}
+        onPointerUp={stopCardFlipFromChild}
+        onPointerCancel={stopCardFlipFromChild}
+        onClick={stopCardFlipFromChild}
+        style={{
+          position: 'absolute',
+          top: 'calc(100% + 8px)',
+          right: 0,
+          minWidth: '92px',
+          borderRadius: '10px',
+          background: 'rgba(255, 255, 255, 0.22)',
+          backdropFilter: 'blur(10px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+          border: '1px solid rgba(15, 23, 42, 0.28)',
+          boxShadow: isEditMenuOpen ? '0 10px 18px rgba(15, 23, 42, 0.14)' : 'none',
+          padding: '4px',
+          opacity: isEditMenuOpen ? 1 : 0,
+          transform: isEditMenuOpen ? 'translateY(0) scale(1)' : 'translateY(-8px) scale(0.96)',
+          transformOrigin: 'top right',
+          transition: 'opacity 180ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease',
+          pointerEvents: isEditMenuOpen ? 'auto' : 'none',
+        }}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          onClick={goToEditPage}
+          className="w-full"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 8px)',
-            right: 0,
-            minWidth: '92px',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.22)',
-            backdropFilter: 'blur(10px) saturate(140%)',
-            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
-            border: '1px solid rgba(15, 23, 42, 0.28)',
-            boxShadow: 'none',
-            padding: '4px',
+            borderRadius: '7px',
+            height: '30px',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: '#111827',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={goToEditPage}
-            className="w-full"
-            style={{
-              borderRadius: '7px',
-              height: '30px',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#111827',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            편집하기
-          </button>
-        </div>
-      )}
+          편집하기
+        </button>
+      </div>
     </div>
     ) : null
   );
@@ -979,8 +988,7 @@ function PetProfileCard({
     }
   };
 
-  const handleSaveImage = async (event: any) => {
-    stopCardFlipFromChild(event);
+  const saveImageFromCard = useCallback(async () => {
     if (typeof window === 'undefined' || isSavingImage) return;
 
     const targetElement = frontCaptureRef.current;
@@ -995,6 +1003,16 @@ function PetProfileCard({
     } finally {
       setIsSavingImage(false);
     }
+  }, [isSavingImage, pet.slug, pet.name]);
+
+  useEffect(() => {
+    if (!externalSaveImageTrigger) return;
+    void saveImageFromCard();
+  }, [externalSaveImageTrigger, saveImageFromCard]);
+
+  const handleSaveImage = async (event: any) => {
+    stopCardFlipFromChild(event);
+    await saveImageFromCard();
   };
 
   const frontCardContent = (
@@ -1543,7 +1561,7 @@ function PetProfileCard({
             </>
           )}
         </div>
-        {!isEditMode && (
+        {!isEditMode && showCardShareSaveButtons && (
           <>
             <button
               type="button"
@@ -1828,6 +1846,8 @@ export default function PetProfileScene({
   isSaving = false,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
+  showCardShareSaveButtons = true,
+  externalSaveImageTrigger = 0,
 }: PetProfileSceneProps) {
   const [mousePosition, setMousePosition] = useState({ x: 300, y: 400 });
   const [isMouseInside, setIsMouseInside] = useState(false);
@@ -2012,6 +2032,8 @@ export default function PetProfileScene({
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}
           isUploadingPhoto={isUploadingPhoto}
+          showCardShareSaveButtons={showCardShareSaveButtons}
+          externalSaveImageTrigger={externalSaveImageTrigger}
         />
         {!isMobileInput && !isEditMode && (
           <CustomCursor x={mousePosition.x} y={mousePosition.y} isVisible={isMouseInside} />
