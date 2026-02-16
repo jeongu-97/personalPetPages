@@ -18,6 +18,8 @@ type PetProfileSceneProps = {
   editLink?: string;
   onEditRequest?: () => void;
   showEditMenu?: boolean;
+  onShareRequest?: () => void;
+  onCommentRequest?: () => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -185,6 +187,8 @@ function PetProfileCard({
   editLink,
   onEditRequest,
   showEditMenu = true,
+  onShareRequest,
+  onCommentRequest,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -196,6 +200,8 @@ function PetProfileCard({
   editLink?: string;
   onEditRequest?: () => void;
   showEditMenu?: boolean;
+  onShareRequest?: () => void;
+  onCommentRequest?: () => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
@@ -502,6 +508,10 @@ function PetProfileCard({
 
   const handleShareProfile = async (event: any) => {
     stopCardFlipFromChild(event);
+    if (onShareRequest) {
+      onShareRequest();
+      return;
+    }
     if (typeof window === 'undefined') return;
     const shareUrl = window.location.href;
 
@@ -1505,7 +1515,10 @@ function PetProfileCard({
                 onPointerDown={stopCardFlipFromChild}
                 onPointerUp={stopCardFlipFromChild}
                 onPointerCancel={stopCardFlipFromChild}
-                onClick={stopCardFlipFromChild}
+                onClick={(event) => {
+                  stopCardFlipFromChild(event);
+                  onCommentRequest?.();
+                }}
                 className="w-full rounded-2xl text-white"
                 style={{
                   marginTop: 'clamp(10px, 1.5vh, 16px)',
@@ -1809,6 +1822,8 @@ export default function PetProfileScene({
   editLink,
   onEditRequest,
   showEditMenu = true,
+  onShareRequest,
+  onCommentRequest,
   onSaveRequest,
   isSaving = false,
   onPhotoUploadRequest,
@@ -1991,6 +2006,8 @@ export default function PetProfileScene({
           editLink={editLink}
           onEditRequest={onEditRequest}
           showEditMenu={showEditMenu}
+          onShareRequest={onShareRequest}
+          onCommentRequest={onCommentRequest}
           onSaveRequest={onSaveRequest}
           isSaving={isSaving}
           onPhotoUploadRequest={onPhotoUploadRequest}

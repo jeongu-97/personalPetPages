@@ -81,6 +81,8 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
+
 const normalizeDecimal = (value: string) => {
   const cleaned = value.replace(/[^0-9.]/g, '');
   const [integer, ...rest] = cleaned.split('.');
@@ -294,7 +296,7 @@ export default function ProfileSurveyPage() {
       favoriteToy: form.favoriteToy.trim(),
       funFacts: autoFunFacts,
       personality: form.personality.trim(),
-      ownerContact: form.ownerContact.trim(),
+      ownerContact: normalizeNumeric(form.ownerContact),
       mainPhoto: form.mainPhoto,
     };
   };
@@ -522,7 +524,11 @@ export default function ProfileSurveyPage() {
       return (
         <input
           value={form.ownerContact}
-          onChange={(event) => setForm((prev) => ({ ...prev, ownerContact: event.target.value }))}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, ownerContact: normalizeNumeric(event.target.value) }))
+          }
+          inputMode="numeric"
+          pattern="[0-9]*"
           placeholder="예: 01012345678"
           style={textFieldStyle}
         />
@@ -530,6 +536,7 @@ export default function ProfileSurveyPage() {
     }
 
     if (stepIndex === 8) {
+      const hasPreview = Boolean(form.mainPhoto);
       return (
         <>
           <input
@@ -553,13 +560,52 @@ export default function ProfileSurveyPage() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
+              overflow: 'hidden',
+              position: 'relative',
             }}
           >
-            <Upload size={40} color="#9aa1ac" />
-            <span style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>사진 업로드</span>
-            <span style={{ fontSize: '14px', color: '#6b7280' }}>
-              {form.mainPhotoFileName ? form.mainPhotoFileName : '탭하여 선택하기'}
-            </span>
+            {hasPreview ? (
+              <>
+                <img
+                  src={form.mainPhoto}
+                  alt="업로드 미리보기"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: '8px 10px',
+                    background: 'linear-gradient(to top, rgba(17,24,39,0.55), rgba(17,24,39,0))',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {form.mainPhotoFileName || '다른 사진 선택하기'}
+                </div>
+              </>
+            ) : (
+              <>
+                <Upload size={40} color="#9aa1ac" />
+                <span style={{ fontSize: '20px', fontWeight: 700, color: '#111827' }}>사진 업로드</span>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  {form.mainPhotoFileName ? form.mainPhotoFileName : '탭하여 선택하기'}
+                </span>
+              </>
+            )}
           </button>
           <p style={{ textAlign: 'center', marginTop: '11px', fontSize: '13px', color: '#6b7280' }}>
             나중에 추가할 수도 있어요

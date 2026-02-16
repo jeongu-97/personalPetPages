@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
+import { MessageCircle } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import PetProfileScene from '../components/PetProfileScene';
 import { buildDefaultFunFacts } from '../lib/funFacts';
@@ -69,7 +70,10 @@ export default function DraftProfilePage() {
   const [session, setSession] = useState<Session | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginIntentLabel, setLoginIntentLabel] = useState('편집');
   const publishTriggeredRef = useRef(false);
+  const autoModalOpenedRef = useRef(false);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const shouldPublishAfterLogin = searchParams.get('post_login') === 'publish';
 
@@ -142,6 +146,7 @@ export default function DraftProfilePage() {
           redirectTo: `${window.location.origin}/draft/${encodeURIComponent(
             draftId
           )}?${nextParams.toString()}`,
+          scopes: 'profile_nickname profile_image',
         },
       });
       if (error) {
@@ -209,6 +214,20 @@ export default function DraftProfilePage() {
     }
   };
 
+  const openLoginModal = (intent: 'share' | 'comment' | 'edit') => {
+    setMessage(null);
+    setIsLoginModalOpen(true);
+    if (intent === 'share') {
+      setLoginIntentLabel('프로필 공유');
+      return;
+    }
+    if (intent === 'comment') {
+      setLoginIntentLabel('댓글 작성');
+      return;
+    }
+    setLoginIntentLabel('편집');
+  };
+
   useEffect(() => {
     if (!shouldPublishAfterLogin || !session || !draftPet) return;
     if (publishTriggeredRef.current) return;
@@ -216,6 +235,15 @@ export default function DraftProfilePage() {
     publishDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldPublishAfterLogin, session, draftPet]);
+
+  useEffect(() => {
+    if (state !== 'ready' || !draftPet) return;
+    if (shouldPublishAfterLogin) return;
+    if (autoModalOpenedRef.current) return;
+    autoModalOpenedRef.current = true;
+    setLoginIntentLabel('편집');
+    setIsLoginModalOpen(true);
+  }, [state, draftPet, shouldPublishAfterLogin]);
 
   if (state === 'loading') {
     return (
@@ -247,7 +275,12 @@ export default function DraftProfilePage() {
 
   return (
     <div className="min-h-screen">
-      <PetProfileScene petData={draftPet} showEditMenu={false} />
+      <PetProfileScene
+        petData={draftPet}
+        onShareRequest={() => openLoginModal('share')}
+        onCommentRequest={() => openLoginModal('comment')}
+        onEditRequest={() => openLoginModal('edit')}
+      />
       <div
         style={{
           position: 'fixed',
@@ -255,44 +288,134 @@ export default function DraftProfilePage() {
           transform: 'translateX(-50%)',
           bottom: '18px',
           width: 'min(92vw, 520px)',
-          zIndex: 70,
+          zIndex: 74,
         }}
       >
-        <div
-          className="rounded-3xl"
+        <button
+          type="button"
+          onClick={() => navigate('/start')}
+          className="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-gray-700"
           style={{
-            background: 'rgba(255, 255, 255, 0.72)',
+            background: 'rgba(242, 243, 245, 0.88)',
             backdropFilter: 'blur(10px)',
             WebkitBackdropFilter: 'blur(10px)',
-            border: '1px solid rgba(148, 163, 184, 0.35)',
-            padding: '12px',
+            border: '1.5px solid rgba(211, 215, 222, 0.95)',
+            boxShadow: '8px 8px 16px rgba(194, 200, 209, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8)',
           }}
         >
-          <p className="text-center text-gray-600" style={{ fontSize: '13px', marginBottom: '8px' }}>
-            현재 브라우저에 임시 저장된 상태예요. 로그인하면 프로필이 게시됩니다.
-          </p>
-          <button
-            type="button"
-            onClick={publishDraft}
-            disabled={isPublishing}
-            className="w-full rounded-2xl px-4 py-3 text-sm font-semibold"
+          새 프로필 만들기
+        </button>
+      </div>
+      {message && !isLoginModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            bottom: '88px',
+            zIndex: 75,
+            maxWidth: '88vw',
+            background: 'rgba(239, 68, 68, 0.92)',
+            color: '#fff',
+            borderRadius: '12px',
+            padding: '10px 14px',
+            fontSize: '13px',
+          }}
+        >
+          {message}
+        </div>
+      )}
+      {isLoginModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            background: 'rgba(17, 24, 39, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setIsLoginModalOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-3xl"
             style={{
-              color: '#3b2f00',
-              background: '#FEE500',
-              boxShadow: '8px 8px 16px rgba(148, 163, 184, 0.25), -8px -8px 16px rgba(255,255,255,0.55)',
-              opacity: isPublishing ? 0.7 : 1,
-              cursor: isPublishing ? 'not-allowed' : 'pointer',
+              position: 'relative',
+              background: '#f2f3f5',
+              border: '1.5px solid #d3d7de',
+              boxShadow: '20px 20px 40px #c2c8d1, -20px -20px 40px #ffffff',
+              padding: '22px',
             }}
           >
-            {isPublishing ? '처리 중...' : session ? '프로필 게시하기' : '카카오 로그인 후 프로필 게시'}
-          </button>
-          {message && (
-            <p className="text-center text-red-500 mt-2" style={{ fontSize: '13px' }}>
-              {message}
+            <button
+              type="button"
+              onClick={() => setIsLoginModalOpen(false)}
+              aria-label="닫기"
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '999px',
+                border: '1px solid #d3d7de',
+                background: '#f2f3f5',
+                color: '#4b5563',
+                fontSize: '16px',
+                fontWeight: 700,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+            <h2 className="text-gray-800 font-semibold" style={{ fontSize: '21px' }}>
+              카카오 로그인하고 프로필 완성하기
+            </h2>
+            <p className="text-gray-600 mt-2" style={{ fontSize: '14px', lineHeight: 1.5 }}>
+              {loginIntentLabel} 기능을 사용하려면 카카오 로그인 후 프로필을 먼저 게시해야 해요.
             </p>
-          )}
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={publishDraft}
+                disabled={isPublishing}
+                className="w-full rounded-xl px-4 py-3 text-sm font-semibold"
+                style={{
+                  color: '#2f2a00',
+                  background: '#FEE500',
+                  border: '1px solid #e5cc00',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 14px rgba(0, 0, 0, 0.08)',
+                  opacity: isPublishing ? 0.7 : 1,
+                  cursor: isPublishing ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                {isPublishing ? (
+                  '처리 중...'
+                ) : (
+                  <>
+                    <MessageCircle size={16} style={{ fill: '#111', stroke: '#111' }} />
+                    <span>{session ? '프로필 게시하기' : '카카오톡으로 간편로그인'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+            {message && (
+              <p className="text-center text-red-500 mt-3" style={{ fontSize: '13px' }}>
+                {message}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

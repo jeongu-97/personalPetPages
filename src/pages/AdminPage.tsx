@@ -294,6 +294,7 @@ export default function AdminPage() {
       provider: 'kakao',
       options: {
         redirectTo: `${window.location.origin}/admin`,
+        scopes: 'profile_nickname profile_image',
       },
     });
 
