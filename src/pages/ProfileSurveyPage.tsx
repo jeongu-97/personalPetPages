@@ -81,6 +81,53 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const MAX_DRAFT_IMAGE_DATA_URL_LENGTH = 900_000;
+
+const loadImage = (source: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('image_load_failed'));
+    image.src = source;
+  });
+
+const compressImageForDraft = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const maxEdge = Math.max(image.width, image.height);
+    let scale = maxEdge > 1280 ? 1280 / maxEdge : 1;
+    let quality = 0.84;
+    let output = '';
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) break;
+
+      context.drawImage(image, 0, 0, width, height);
+      output = canvas.toDataURL('image/jpeg', quality);
+      if (output.length <= MAX_DRAFT_IMAGE_DATA_URL_LENGTH) {
+        return output;
+      }
+
+      if (quality > 0.52) {
+        quality = Math.max(0.5, quality - 0.1);
+      } else {
+        scale *= 0.84;
+      }
+    }
+
+    return output;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
 const normalizeNumeric = (value: string) => value.replace(/\D+/g, '');
 
 const normalizeDecimal = (value: string) => {
@@ -346,7 +393,16 @@ export default function ProfileSurveyPage() {
     if (!file) return;
 
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl =
+        file.size > 420_000
+          ? await compressImageForDraft(file)
+          : await fileToDataUrl(file);
+
+      if (!dataUrl || dataUrl.length > 2_200_000) {
+        setMessage('사진 용량이 커서 저장할 수 없어요. 더 작은 사진으로 시도해 주세요.');
+        return;
+      }
+
       setForm((prev) => ({
         ...prev,
         mainPhoto: dataUrl,

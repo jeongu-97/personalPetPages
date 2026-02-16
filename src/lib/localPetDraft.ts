@@ -44,6 +44,10 @@ const writeDrafts = (drafts: LocalPetDraft[]) => {
   window.localStorage.setItem(LOCAL_PET_DRAFTS_KEY, JSON.stringify(drafts));
 };
 
+const isQuotaExceededError = (error: unknown) =>
+  error instanceof DOMException &&
+  (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+
 export const createLocalPetDraftId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -52,9 +56,31 @@ export const createLocalPetDraftId = () => {
 };
 
 export const saveLocalPetDraft = (draft: LocalPetDraft) => {
-  const drafts = safeParseDrafts().filter((item) => item.id !== draft.id);
+  const drafts = safeParseDrafts()
+    .filter((item) => item.id !== draft.id)
+    .sort((a, b) => {
+      const aTime = Date.parse(a.updatedAt);
+      const bTime = Date.parse(b.updatedAt);
+      if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+      if (Number.isNaN(aTime)) return -1;
+      if (Number.isNaN(bTime)) return 1;
+      return aTime - bTime;
+    });
   drafts.push(draft);
-  writeDrafts(drafts);
+
+  while (true) {
+    try {
+      writeDrafts(drafts);
+      return;
+    } catch (error) {
+      if (!isQuotaExceededError(error)) throw error;
+      const removableIndex = drafts.findIndex((item) => item.id !== draft.id);
+      if (removableIndex === -1) {
+        throw error;
+      }
+      drafts.splice(removableIndex, 1);
+    }
+  }
 };
 
 export const getLocalPetDraft = (id: string): LocalPetDraft | null => {
