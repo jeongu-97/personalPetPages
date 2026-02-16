@@ -223,6 +223,8 @@ function PetProfileCard({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const frontCaptureRef = useRef<HTMLDivElement>(null);
+  const externalSaveHandledRef = useRef<number>(0);
+  const isSavingImageRef = useRef(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const bgColorInputRef = useRef<HTMLInputElement | null>(null);
   const accentColorInputRef = useRef<HTMLInputElement | null>(null);
@@ -1050,33 +1052,44 @@ function PetProfileCard({
         image.onerror = () => finalize(() => reject(new Error('svg_render_failed')));
         image.src = svgUrl;
       });
-    } catch {
-      const svgFileName = fileName.replace(/\.png$/i, '.svg');
-      downloadBlob(svgBlob, svgFileName);
     } finally {
       URL.revokeObjectURL(svgUrl);
     }
   };
 
   const saveImageFromCard = useCallback(async () => {
-    if (typeof window === 'undefined' || isSavingImage) return;
+    if (typeof window === 'undefined' || isSavingImageRef.current) return;
 
     const targetElement = frontCaptureRef.current;
     if (!targetElement) return;
 
     const downloadName = `${(pet.slug || pet.name || 'pet').trim()}-profile-card.png`;
+    isSavingImageRef.current = true;
     setIsSavingImage(true);
     try {
       await downloadFrontCardAsPng(targetElement, downloadName);
-    } catch {
-      window.alert('이미지 저장에 실패했어요. 다시 시도해 주세요.');
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'unknown_error';
+      console.error('[PetProfileScene] image_save_failed', code, error);
+      const reason =
+        code === 'svg_render_failed' || code === 'svg_render_timeout'
+          ? '브라우저에서 카드 렌더링을 지원하지 않아요.'
+          : code === 'canvas_context_failed' || code === 'canvas_draw_failed'
+            ? '브라우저 캔버스 렌더링에 실패했어요.'
+            : code === 'canvas_blob_failed' || code === 'canvas_blob_timeout'
+              ? '이미지 변환 중 메모리/처리 제한에 걸렸어요.'
+              : '알 수 없는 오류가 발생했어요.';
+      window.alert(`이미지 저장에 실패했어요.\n사유: ${reason}`);
     } finally {
+      isSavingImageRef.current = false;
       setIsSavingImage(false);
     }
-  }, [isSavingImage, pet.slug, pet.name]);
+  }, [pet.slug, pet.name]);
 
   useEffect(() => {
     if (!externalSaveImageTrigger) return;
+    if (externalSaveHandledRef.current === externalSaveImageTrigger) return;
+    externalSaveHandledRef.current = externalSaveImageTrigger;
     void saveImageFromCard();
   }, [externalSaveImageTrigger, saveImageFromCard]);
 
@@ -1683,6 +1696,7 @@ function PetProfileCard({
                   onPointerDown={stopCardFlipFromChild}
                   onPointerUp={stopCardFlipFromChild}
                   onPointerCancel={stopCardFlipFromChild}
+                  onClick={stopCardFlipFromChild}
                   style={{
                     marginTop: '10px',
                     padding: '10px',
@@ -1695,6 +1709,7 @@ function PetProfileCard({
                     type="text"
                     value={commentAuthorInput}
                     onChange={(event) => setCommentAuthorInput(event.target.value)}
+                    onClick={stopCardFlipFromChild}
                     placeholder="이름(선택)"
                     className="w-full"
                     style={{
@@ -1710,6 +1725,7 @@ function PetProfileCard({
                   <textarea
                     value={commentTextInput}
                     onChange={(event) => setCommentTextInput(event.target.value)}
+                    onClick={stopCardFlipFromChild}
                     placeholder="기록 내용을 입력해 주세요."
                     className="w-full mt-2"
                     style={{
