@@ -10,6 +10,8 @@ import { supabase } from '../lib/supabaseClient';
 import { PetProfileData } from '../types/pet';
 
 type LoadState = 'loading' | 'ready' | 'not_found';
+const MIN_CTA_PANEL_WHEEL_DELTA = 24;
+const MIN_CTA_PANEL_SWIPE_DELTA = 56;
 
 const normalizeSlug = (value: string) =>
   value
@@ -284,7 +286,7 @@ export default function DraftProfilePage() {
 
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) < 6) return;
+      if (Math.abs(event.deltaY) < MIN_CTA_PANEL_WHEEL_DELTA) return;
       setIsNewProfileButtonVisible(event.deltaY < 0);
     };
 
@@ -301,7 +303,12 @@ export default function DraftProfilePage() {
 
       const deltaX = touch.clientX - start.x;
       const deltaY = start.y - touch.clientY;
-      if (Math.abs(deltaY) < 20 || Math.abs(deltaY) <= Math.abs(deltaX) + 8) return;
+      if (
+        Math.abs(deltaY) < MIN_CTA_PANEL_SWIPE_DELTA ||
+        Math.abs(deltaY) <= Math.abs(deltaX) + 16
+      ) {
+        return;
+      }
 
       setIsNewProfileButtonVisible(deltaY > 0);
       ctaTouchStartRef.current = { x: touch.clientX, y: touch.clientY };

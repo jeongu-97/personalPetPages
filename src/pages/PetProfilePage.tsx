@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Session } from '@supabase/supabase-js';
-import { Download, LayoutGrid, PlusCircle, Share2 } from 'lucide-react';
+import { Download, LayoutGrid, PlusCircle, Share2, Trash2 } from 'lucide-react';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
 import { PetComment, PetProfileData } from '../types/pet';
@@ -16,6 +16,8 @@ type CommenterProfile = {
   token: string;
 };
 type Rgb = { r: number; g: number; b: number };
+const MIN_ACTION_PANEL_WHEEL_DELTA = 24;
+const MIN_ACTION_PANEL_SWIPE_DELTA = 56;
 
 const isValidHexColor = (value?: string) =>
   typeof value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
@@ -139,6 +141,8 @@ export default function PetProfilePage() {
   const [isRandomNavigating, setIsRandomNavigating] = useState(false);
   const [selectedCommenterProfile, setSelectedCommenterProfile] = useState<CommenterProfile | null>(null);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const actionTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const searchParams = new URLSearchParams(location.search);
   const isCreatedFromSurvey = searchParams.get('created') === '1';
@@ -276,7 +280,7 @@ export default function PetProfilePage() {
 
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) < 6) return;
+      if (Math.abs(event.deltaY) < MIN_ACTION_PANEL_WHEEL_DELTA) return;
       setIsActionButtonsVisible(event.deltaY < 0);
     };
 
@@ -293,7 +297,12 @@ export default function PetProfilePage() {
 
       const deltaX = touch.clientX - start.x;
       const deltaY = start.y - touch.clientY;
-      if (Math.abs(deltaY) < 20 || Math.abs(deltaY) <= Math.abs(deltaX) + 8) return;
+      if (
+        Math.abs(deltaY) < MIN_ACTION_PANEL_SWIPE_DELTA ||
+        Math.abs(deltaY) <= Math.abs(deltaX) + 16
+      ) {
+        return;
+      }
 
       setIsActionButtonsVisible(deltaY > 0);
       actionTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
@@ -421,6 +430,36 @@ export default function PetProfilePage() {
       return { ok: true };
     } catch {
       return { ok: false, message: '네트워크 오류로 기록 등록에 실패했어요.' };
+    }
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!pet || !session?.user.id || !pet.creatorUserId || pet.creatorUserId !== session.user.id || isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setActionErrorMessage(null);
+
+    try {
+      const { error } = await supabase
+        .from('pets')
+        .delete()
+        .eq('id', pet.id)
+        .eq('creator_user_id', session.user.id);
+
+      if (error) {
+        setActionErrorMessage(error.message || '프로필 삭제에 실패했어요.');
+        return;
+      }
+
+      removePetOwnerClaim(pet.slug);
+      navigate('/my-profiles', { replace: true });
+    } catch {
+      setActionErrorMessage('프로필 삭제에 실패했어요.');
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
     }
   };
 
@@ -645,6 +684,37 @@ export default function PetProfilePage() {
               />
               <span>새 프로필 만들기</span>
             </button>
+
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="w-full rounded-2xl text-[#b91c1c]"
+                style={{
+                  background: baseBg,
+                  boxShadow: swappedInsetButtonShadow,
+                  padding: 'clamp(10px, 1.5vh, 16px)',
+                  minHeight: 'clamp(46px, 6.8vh, 56px)',
+                  fontSize: 'clamp(13px, 2vh, 16px)',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  columnGap: '8px',
+                  border: '1px solid rgba(220, 38, 38, 0.28)',
+                }}
+              >
+                <Trash2
+                  aria-hidden="true"
+                  style={{
+                    width: 'clamp(16px, 2.5vh, 20px)',
+                    height: 'clamp(16px, 2.5vh, 20px)',
+                    color: '#b91c1c',
+                  }}
+                />
+                <span>프로필 삭제</span>
+              </button>
+            )}
           </div>
           {actionErrorMessage && (
             <p
@@ -659,6 +729,76 @@ export default function PetProfilePage() {
             </p>
           )}
         </div>
+        {isDeleteModalOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 90,
+              background: 'rgba(15, 23, 42, 0.46)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
+            }}
+            onClick={() => {
+              if (!isDeleting) setIsDeleteModalOpen(false);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl"
+              style={{
+                background: baseBg,
+                boxShadow: '20px 20px 40px rgba(17,24,39,0.18), -20px -20px 40px rgba(255,255,255,0.68)',
+                border: '1.5px solid rgba(255, 255, 255, 0.72)',
+                padding: '18px 16px',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#111827' }}>프로필 삭제</h3>
+              <p style={{ margin: '10px 0 0', fontSize: '14px', color: '#4b5563', lineHeight: 1.5 }}>
+                삭제하면 되돌릴 수 없어요.
+                <br />
+                정말 삭제할까요?
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  disabled={isDeleting}
+                  style={{
+                    height: '42px',
+                    borderRadius: '12px',
+                    background: 'rgba(255, 255, 255, 0.72)',
+                    border: '1px solid rgba(148, 163, 184, 0.45)',
+                    fontWeight: 700,
+                    color: '#374151',
+                  }}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteProfile()}
+                  disabled={isDeleting}
+                  style={{
+                    height: '42px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(90deg, #f87171 0%, #ef4444 100%)',
+                    border: 'none',
+                    fontWeight: 800,
+                    color: '#fff',
+                    opacity: isDeleting ? 0.75 : 1,
+                  }}
+                >
+                  {isDeleting ? '삭제 중...' : '삭제'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

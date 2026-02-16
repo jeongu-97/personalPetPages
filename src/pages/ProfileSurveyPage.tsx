@@ -13,7 +13,9 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { buildDefaultFunFacts } from '../lib/funFacts';
 import { createLocalPetDraftId, saveLocalPetDraft } from '../lib/localPetDraft';
+import { PetRecord, toPetRecord } from '../lib/petData';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
+import { supabase } from '../lib/supabaseClient';
 import { emptyPetProfile, PetKind, PetProfileData } from '../types/pet';
 
 type PetGender = '' | '수컷' | '암컷';
@@ -67,6 +69,17 @@ const normalizeSlug = (value: string) =>
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '');
 
+const randomSlugSuffix = () => Math.random().toString(36).slice(2, 6);
+
+const generateToken = () => {
+  if (typeof crypto === 'undefined' || !('getRandomValues' in crypto)) {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
+
 const fileToDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -80,6 +93,18 @@ const fileToDataUrl = (file: File) =>
     reader.onerror = () => reject(reader.error ?? new Error('file_read_failed'));
     reader.readAsDataURL(file);
   });
+
+const dataUrlToBlob = async (dataUrl: string) => {
+  const response = await fetch(dataUrl);
+  return response.blob();
+};
+
+const extensionFromMime = (mime: string) => {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('gif')) return 'gif';
+  return 'jpg';
+};
 
 const MAX_DRAFT_IMAGE_DATA_URL_LENGTH = 900_000;
 
@@ -209,6 +234,32 @@ export default function ProfileSurveyPage() {
   const [form, setForm] = useState<SurveyForm>(initialSurveyForm);
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const uploadPhotoIfNeeded = async (mainPhoto: string, slug: string) => {
+    const source = mainPhoto.trim();
+    if (!source) return '';
+    if (/^https?:\/\//i.test(source)) return source;
+
+    if (source.startsWith('data:')) {
+      const blob = await dataUrlToBlob(source);
+      const ext = extensionFromMime(blob.type);
+      const fileId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const path = `${slug}/${fileId}.${ext}`;
+      const { error } = await supabase.storage.from('pet-photos').upload(path, blob, {
+        upsert: true,
+        contentType: blob.type || undefined,
+      });
+      if (error) {
+        throw new Error(error.message || 'photo_upload_failed');
+      }
+      const { data } = supabase.storage.from('pet-photos').getPublicUrl(path);
+      return data.publicUrl;
+    }
+
+    return '';
+  };
 
   const isLastStep = stepIndex === TOTAL_STEPS - 1;
   const petName = form.name.trim() || '아이';
@@ -362,6 +413,48 @@ export default function ProfileSurveyPage() {
     navigate(`/draft/${encodeURIComponent(draftId)}`, { replace: true });
   };
 
+  const createProfileAndContinue = async () => {
+    const basePayload = buildPayload();
+    const baseSlug = normalizeSlug(basePayload.slug || basePayload.name || 'pet');
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomSlugSuffix()}`;
+      const shareToken = generateToken();
+      const mainPhoto = await uploadPhotoIfNeeded(basePayload.mainPhoto ?? '', slug);
+      const payload: PetProfileData = {
+        ...basePayload,
+        slug,
+        shareToken,
+        mainPhoto,
+      };
+
+      const { data, error } = await supabase
+        .from('pets')
+        .insert(toPetRecord(payload))
+        .select()
+        .maybeSingle<PetRecord>();
+
+      if (!error && data) {
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(PROFILE_SURVEY_DRAFT_KEY);
+        }
+        navigate(
+          `/${encodeURIComponent(data.slug)}?token=${encodeURIComponent(data.share_token ?? shareToken)}&created=1`,
+          { replace: true }
+        );
+        return;
+      }
+
+      if (error?.code === '23505') {
+        continue;
+      }
+
+      throw new Error(error?.message || 'insert_failed');
+    }
+
+    throw new Error('slug_conflict');
+  };
+
   const handleNext = async () => {
     if (isNextDisabled) return;
 
@@ -376,9 +469,24 @@ export default function ProfileSurveyPage() {
     if (isLastStep) {
       setIsSubmitting(true);
       try {
-        saveDraftAndContinue();
-      } catch {
-        setMessage('임시 저장에 실패했어요. 다시 시도해 주세요.');
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          throw new Error(error.message || 'session_check_failed');
+        }
+
+        if (data.session) {
+          await createProfileAndContinue();
+        } else {
+          saveDraftAndContinue();
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === 'slug_conflict') {
+          setMessage('프로필 주소 생성에 실패했어요. 이름을 조금 바꿔서 다시 시도해 주세요.');
+        } else if (error instanceof Error) {
+          setMessage(error.message || '저장에 실패했어요. 다시 시도해 주세요.');
+        } else {
+          setMessage('저장에 실패했어요. 다시 시도해 주세요.');
+        }
       } finally {
         setIsSubmitting(false);
       }
