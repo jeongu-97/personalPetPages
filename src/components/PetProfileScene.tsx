@@ -886,6 +886,10 @@ function PetProfileCard({
     ) : null
   );
 
+  const hasUnsupportedColorFunction = (value: string) => /oklch|oklab/i.test(value);
+  const stripUnsupportedColorDeclarations = (cssText: string) =>
+    cssText.replace(/[^;{}]*?(?:oklch|oklab)\([^;{}]*\)[^;{}]*;?/gi, '');
+
   const cloneNodeWithComputedStyles = (sourceRoot: HTMLElement) => {
     const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement;
     const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>('*'))];
@@ -897,7 +901,13 @@ function PetProfileCard({
 
       const computedStyle = window.getComputedStyle(sourceElement);
       const cssText = Array.from(computedStyle)
-        .map((property) => `${property}:${computedStyle.getPropertyValue(property)};`)
+        .filter((property) => !property.startsWith('--'))
+        .map((property) => {
+          const rawValue = computedStyle.getPropertyValue(property);
+          if (!rawValue) return '';
+          if (hasUnsupportedColorFunction(rawValue)) return '';
+          return `${property}:${rawValue};`;
+        })
         .join('');
       clonedElement.style.cssText = cssText;
     });
@@ -919,8 +929,89 @@ function PetProfileCard({
       reader.readAsDataURL(blob);
     });
 
+  const loadHtml2Canvas = async () => {
+    if (typeof window === 'undefined') {
+      throw new Error('html2canvas_unavailable');
+    }
+
+    const existing = (window as any).html2canvas;
+    if (typeof existing === 'function') {
+      return existing as (element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLCanvasElement>;
+    }
+
+    const loadingPromise = (window as any).__html2canvasLoadingPromise as Promise<
+      (element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLCanvasElement>
+    > | undefined;
+    if (loadingPromise) return loadingPromise;
+
+    const promise = new Promise<
+      (element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLCanvasElement>
+    >((resolve, reject) => {
+      const script = window.document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      script.async = true;
+      script.onload = () => {
+        const loaded = (window as any).html2canvas;
+        if (typeof loaded === 'function') {
+          resolve(loaded);
+          return;
+        }
+        reject(new Error('html2canvas_load_invalid'));
+      };
+      script.onerror = () => reject(new Error('html2canvas_load_failed'));
+      window.document.head.appendChild(script);
+    });
+
+    (window as any).__html2canvasLoadingPromise = promise;
+
+    try {
+      return await promise;
+    } finally {
+      delete (window as any).__html2canvasLoadingPromise;
+    }
+  };
+
+  const downloadCanvasAsPng = async (canvas: HTMLCanvasElement, fileName: string) => {
+    await new Promise<void>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('canvas_blob_failed'));
+          return;
+        }
+        const blobUrl = URL.createObjectURL(blob);
+        const link = window.document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(blobUrl);
+        resolve();
+      }, 'image/png');
+    });
+  };
+
+  const downloadBlobAsFile = (blob: Blob, fileName: string) => {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = window.document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
+  };
+
   const inlineImagesAsDataUrl = async (root: HTMLElement) => {
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+    const transparentPixel =
+      'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
+    const setSafeFallbackImage = (imageElement: HTMLImageElement) => {
+      imageElement.setAttribute('src', transparentPixel);
+      imageElement.removeAttribute('crossorigin');
+    };
+
     await Promise.all(
       images.map(async (imageElement) => {
         const source = imageElement.getAttribute('src');
@@ -935,19 +1026,24 @@ function PetProfileCard({
           } finally {
             window.clearTimeout(timeoutId);
           }
-          if (!response.ok) return;
+          if (!response.ok) {
+            setSafeFallbackImage(imageElement);
+            return;
+          }
           const blob = await response.blob();
           const dataUrl = await toDataUrl(blob);
           imageElement.setAttribute('src', dataUrl);
           imageElement.removeAttribute('crossorigin');
         } catch {
-          // keep original source
+          // If conversion fails (usually CORS), fallback to a safe inline pixel
+          // to avoid tainting canvas and breaking PNG export.
+          setSafeFallbackImage(imageElement);
         }
       }),
     );
   };
 
-  const downloadFrontCardAsPng = async (targetElement: HTMLElement, fileName: string) => {
+  const createCaptureWrapper = async (targetElement: HTMLElement) => {
     const width = targetElement.offsetWidth || Math.ceil(targetElement.getBoundingClientRect().width);
     const height = targetElement.offsetHeight || Math.ceil(targetElement.getBoundingClientRect().height);
     const borderRadius = window.getComputedStyle(targetElement).borderRadius;
@@ -982,6 +1078,50 @@ function PetProfileCard({
 
     await inlineImagesAsDataUrl(wrapper);
 
+    return { width, height, wrapper };
+  };
+
+  const downloadFrontCardViaServer = async (targetElement: HTMLElement, fileName: string) => {
+    const { width, height, wrapper } = await createCaptureWrapper(targetElement);
+    const html = new XMLSerializer().serializeToString(wrapper);
+
+    const response = await fetch('/api/card-image', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        html,
+        width,
+        height,
+        fileName,
+      }),
+    });
+
+    if (!response.ok) {
+      let reason = `http_${response.status}`;
+      try {
+        const body = await response.json();
+        if (body && typeof body.error === 'string') {
+          reason = body.error;
+        }
+      } catch {
+        // noop
+      }
+      throw new Error(`server_capture_failed:${reason}`);
+    }
+
+    const imageBlob = await response.blob();
+    if (!imageBlob || imageBlob.size < 200) {
+      throw new Error('server_capture_empty_blob');
+    }
+
+    downloadBlobAsFile(imageBlob, fileName);
+  };
+
+  const downloadFrontCardAsPng = async (targetElement: HTMLElement, fileName: string) => {
+    const { width, height, wrapper } = await createCaptureWrapper(targetElement);
+
     const serializedCard = new XMLSerializer().serializeToString(wrapper);
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
@@ -990,16 +1130,6 @@ function PetProfileCard({
     `;
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const svgUrl = URL.createObjectURL(svgBlob);
-    const downloadBlob = (blob: Blob, name: string) => {
-      const blobUrl = URL.createObjectURL(blob);
-      const link = window.document.createElement('a');
-      link.href = blobUrl;
-      link.download = name;
-      window.document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(blobUrl);
-    };
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -1042,7 +1172,7 @@ function PetProfileCard({
                 return;
               }
 
-              downloadBlob(blob, fileName);
+              downloadBlobAsFile(blob, fileName);
               finalize(() => resolve());
             }, 'image/png');
           } catch {
@@ -1057,6 +1187,70 @@ function PetProfileCard({
     }
   };
 
+  const downloadFrontCardWithHtml2Canvas = async (targetElement: HTMLElement, fileName: string) => {
+    const html2canvas = await loadHtml2Canvas();
+    const width = targetElement.offsetWidth || Math.ceil(targetElement.getBoundingClientRect().width);
+    const height = targetElement.offsetHeight || Math.ceil(targetElement.getBoundingClientRect().height);
+
+    const captureNode = cloneNodeWithComputedStyles(targetElement);
+    captureNode.style.width = `${width}px`;
+    captureNode.style.height = `${height}px`;
+    captureNode.style.maxHeight = 'none';
+    captureNode.style.transform = 'none';
+    captureNode.style.margin = '0';
+    captureNode.style.position = 'relative';
+    captureNode.style.inset = 'auto';
+
+    const mount = window.document.createElement('div');
+    mount.style.position = 'fixed';
+    mount.style.left = '-100000px';
+    mount.style.top = '0';
+    mount.style.width = `${width}px`;
+    mount.style.height = `${height}px`;
+    mount.style.overflow = 'hidden';
+    mount.style.pointerEvents = 'none';
+    mount.style.opacity = '0';
+    mount.appendChild(captureNode);
+    window.document.body.appendChild(mount);
+
+    const canvas = await html2canvas(captureNode, {
+      backgroundColor: null,
+      useCORS: true,
+      allowTaint: false,
+      scale: Math.max(2, Math.min(3, window.devicePixelRatio || 1)),
+      logging: false,
+      onclone: (doc: Document) => {
+        doc.querySelectorAll('link[rel="stylesheet"]').forEach((linkEl) => {
+          linkEl.remove();
+        });
+        doc.querySelectorAll('style').forEach((styleEl) => {
+          if (!styleEl.textContent) return;
+          styleEl.textContent = stripUnsupportedColorDeclarations(styleEl.textContent);
+        });
+        doc.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+          const inlineStyle = el.getAttribute('style');
+          if (!inlineStyle || !hasUnsupportedColorFunction(inlineStyle)) return;
+          const safeStyle = inlineStyle
+            .split(';')
+            .map((declaration) => declaration.trim())
+            .filter(Boolean)
+            .filter((declaration) => !hasUnsupportedColorFunction(declaration))
+            .join('; ');
+          if (safeStyle) {
+            el.setAttribute('style', safeStyle);
+          } else {
+            el.removeAttribute('style');
+          }
+        });
+      },
+    });
+    try {
+      await downloadCanvasAsPng(canvas, fileName);
+    } finally {
+      mount.remove();
+    }
+  };
+
   const saveImageFromCard = useCallback(async () => {
     if (typeof window === 'undefined' || isSavingImageRef.current) return;
 
@@ -1067,19 +1261,32 @@ function PetProfileCard({
     isSavingImageRef.current = true;
     setIsSavingImage(true);
     try {
-      await downloadFrontCardAsPng(targetElement, downloadName);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : 'unknown_error';
-      console.error('[PetProfileScene] image_save_failed', code, error);
-      const reason =
-        code === 'svg_render_failed' || code === 'svg_render_timeout'
-          ? '브라우저에서 카드 렌더링을 지원하지 않아요.'
-          : code === 'canvas_context_failed' || code === 'canvas_draw_failed'
-            ? '브라우저 캔버스 렌더링에 실패했어요.'
-            : code === 'canvas_blob_failed' || code === 'canvas_blob_timeout'
-              ? '이미지 변환 중 메모리/처리 제한에 걸렸어요.'
-              : '알 수 없는 오류가 발생했어요.';
-      window.alert(`이미지 저장에 실패했어요.\n사유: ${reason}`);
+      try {
+        await downloadFrontCardViaServer(targetElement, downloadName);
+        return;
+      } catch (serverError) {
+        const serverCode = serverError instanceof Error ? serverError.message : 'unknown_error';
+        console.error('[PetProfileScene] image_save_server_failed', serverCode, serverError);
+      }
+
+      try {
+        await downloadFrontCardAsPng(targetElement, downloadName);
+        return;
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'unknown_error';
+        console.error('[PetProfileScene] image_save_failed', code, error);
+        try {
+          await downloadFrontCardWithHtml2Canvas(targetElement, downloadName);
+          return;
+        } catch (fallbackError) {
+          const fallbackCode =
+            fallbackError instanceof Error ? fallbackError.message : 'html2canvas_unknown_error';
+          console.error('[PetProfileScene] image_save_html2canvas_failed', fallbackCode, fallbackError);
+        }
+      }
+      window.alert(
+        '이미지 저장에 실패했어요.\n잠시 후 다시 시도해 주세요.'
+      );
     } finally {
       isSavingImageRef.current = false;
       setIsSavingImage(false);
