@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Session } from '@supabase/supabase-js';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
@@ -36,6 +37,8 @@ export default function UserEditPage() {
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>('loading');
   const [pet, setPet] = useState<PetProfileData | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [errorModalMessage, setErrorModalMessage] = useState<string | null>(null);
@@ -50,6 +53,22 @@ export default function UserEditPage() {
       replace: true,
     });
   };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setIsAuthChecked(true);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setIsAuthChecked(true);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!slug || !token) {
@@ -80,6 +99,10 @@ export default function UserEditPage() {
 
   const handleSave = async () => {
     if (!pet) return;
+    if (!session?.user.id || !pet.creatorUserId || pet.creatorUserId !== session.user.id) {
+      setErrorModalMessage('편집 권한이 없어요.');
+      return;
+    }
     setIsSaving(true);
     setErrorModalMessage(null);
 
@@ -146,8 +169,31 @@ export default function UserEditPage() {
     setIsUploadingPhoto(false);
   };
 
-  if (state === 'loading') {
+  if (state === 'loading' || !isAuthChecked) {
     return <PetProfileLoadingSkeleton />;
+  }
+
+  if (state === 'ready' && pet) {
+    const canEdit = Boolean(session?.user.id) && Boolean(pet.creatorUserId) && pet.creatorUserId === session?.user.id;
+    if (!canEdit) {
+      return (
+        <div className="min-h-screen bg-[#e0e5ec] flex items-center justify-center px-6">
+          <div
+            className="rounded-3xl max-w-md w-full text-center"
+            style={{
+              background: '#e0e5ec',
+              boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
+              padding: '32px',
+            }}
+          >
+            <p className="text-gray-600 mb-4">편집 권한이 없는 프로필이에요.</p>
+            <button type="button" onClick={returnToProfileView} className="text-gray-700 font-medium">
+              프로필로 돌아가기
+            </button>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (state !== 'ready' || !pet) {

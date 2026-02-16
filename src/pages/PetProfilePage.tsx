@@ -10,6 +10,11 @@ import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
 import { supabase } from '../lib/supabaseClient';
 
 type LoadState = 'loading' | 'ready' | 'not_found' | 'error';
+type CommenterProfile = {
+  author: string;
+  slug: string;
+  token: string;
+};
 type Rgb = { r: number; g: number; b: number };
 
 const isValidHexColor = (value?: string) =>
@@ -74,9 +79,52 @@ const toCommentArray = (value: unknown): PetComment[] => {
         ? (item as { text: string }).text.trim()
         : '';
       if (!text) return null;
-      return { author, text };
+      const authorUserId = typeof (item as { author_user_id?: unknown }).author_user_id === 'string'
+        ? (item as { author_user_id: string }).author_user_id.trim()
+        : '';
+      const authorSlug = typeof (item as { author_slug?: unknown }).author_slug === 'string'
+        ? (item as { author_slug: string }).author_slug.trim()
+        : '';
+      const authorShareToken = typeof (item as { author_share_token?: unknown }).author_share_token === 'string'
+        ? (item as { author_share_token: string }).author_share_token.trim()
+        : '';
+      const createdAt = typeof (item as { created_at?: unknown }).created_at === 'string'
+        ? (item as { created_at: string }).created_at.trim()
+        : '';
+      return {
+        author,
+        text,
+        authorUserId: authorUserId || undefined,
+        authorSlug: authorSlug || undefined,
+        authorShareToken: authorShareToken || undefined,
+        createdAt: createdAt || undefined,
+      };
     })
     .filter((item): item is PetComment => Boolean(item));
+};
+
+const resolveViewerName = (session: Session | null) => {
+  if (!session?.user) return '';
+  const metadata = session.user.user_metadata as
+    | {
+        nickname?: unknown;
+        name?: unknown;
+        full_name?: unknown;
+        preferred_username?: unknown;
+      }
+    | undefined;
+  const candidates = [
+    metadata?.nickname,
+    metadata?.name,
+    metadata?.full_name,
+    metadata?.preferred_username,
+    session.user.email?.split('@')[0],
+  ];
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim() : '';
+    if (normalized) return normalized.slice(0, 40);
+  }
+  return '';
 };
 
 export default function PetProfilePage() {
@@ -88,10 +136,14 @@ export default function PetProfilePage() {
   const [session, setSession] = useState<Session | null>(null);
   const [isActionButtonsVisible, setIsActionButtonsVisible] = useState(false);
   const [saveImageTrigger, setSaveImageTrigger] = useState(0);
+  const [isRandomNavigating, setIsRandomNavigating] = useState(false);
+  const [selectedCommenterProfile, setSelectedCommenterProfile] = useState<CommenterProfile | null>(null);
+  const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
   const actionTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const searchParams = new URLSearchParams(location.search);
   const isCreatedFromSurvey = searchParams.get('created') === '1';
   const token = searchParams.get('token') ?? '';
+  const viewerDisplayName = resolveViewerName(session);
 
   useEffect(() => {
     if (!slug) return;
@@ -138,6 +190,11 @@ export default function PetProfilePage() {
     };
   }, []);
 
+  useEffect(() => {
+    setSelectedCommenterProfile(null);
+    setActionErrorMessage(null);
+  }, [slug, token]);
+
   const claimOwnershipForCurrentSlug = async (targetSlug: string) => {
     const claim = getPetOwnerClaims().find((item) => item.slug === targetSlug);
     if (!claim) return;
@@ -157,8 +214,12 @@ export default function PetProfilePage() {
   };
 
   const handleEditRequest = async () => {
-    if (!slug || !token) return;
+    if (!slug || !token || !pet) return;
     if (typeof window === 'undefined') return;
+    if (pet.creatorUserId && session?.user.id && pet.creatorUserId !== session.user.id) {
+      setActionErrorMessage('편집 권한이 없는 프로필이에요.');
+      return;
+    }
 
     if (!session) {
       const nextSearchParams = new URLSearchParams(location.search);
@@ -186,8 +247,9 @@ export default function PetProfilePage() {
   };
 
   useEffect(() => {
-    if (!session || !slug || !token) return;
+    if (!session || !slug || !token || !pet) return;
     if (searchParams.get('post_login') !== 'edit') return;
+    if (!pet.creatorUserId || pet.creatorUserId !== session.user.id) return;
 
     const proceed = async () => {
       await claimOwnershipForCurrentSlug(slug);
@@ -196,7 +258,7 @@ export default function PetProfilePage() {
 
     proceed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, slug, token, location.search]);
+  }, [session, slug, token, pet, location.search]);
 
   useEffect(() => {
     if (!(state === 'ready' && isCreatedFromSurvey)) return;
@@ -279,17 +341,62 @@ export default function PetProfilePage() {
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleGoRandomProfile = async () => {
+    if (isRandomNavigating || !slug) return;
+    setActionErrorMessage(null);
+    setSelectedCommenterProfile(null);
+    setIsRandomNavigating(true);
+
+    try {
+      const response = await fetch(`/api/random-pet?exclude_slug=${encodeURIComponent(slug)}`);
+      const payload = (await response.json().catch(() => null)) as
+        | { slug?: string; token?: string; error?: string }
+        | null;
+      if (!response.ok || !payload?.slug || !payload?.token) {
+        const message =
+          payload?.error === 'no_profile_available'
+            ? '구경할 다른 프로필이 아직 없어요.'
+            : '다른 프로필을 불러오지 못했어요.';
+        setActionErrorMessage(message);
+        return;
+      }
+      navigate(`/${encodeURIComponent(payload.slug)}?token=${encodeURIComponent(payload.token)}`);
+    } catch {
+      setActionErrorMessage('다른 프로필을 불러오지 못했어요.');
+    } finally {
+      setIsRandomNavigating(false);
+    }
+  };
+
+  const handleCommentAuthorClick = (comment: PetComment) => {
+    const profileSlug = comment.authorSlug?.trim();
+    const profileToken = comment.authorShareToken?.trim();
+    if (!profileSlug || !profileToken) return;
+    setActionErrorMessage(null);
+    setSelectedCommenterProfile({
+      author: comment.author || '작성자',
+      slug: profileSlug,
+      token: profileToken,
+    });
+    setIsActionButtonsVisible(true);
+  };
+
   const handleCommentSubmit = async ({ author, text }: { author: string; text: string }) => {
     if (!pet || !token) {
       return { ok: false, message: '유효한 공유 토큰이 없어요.' };
     }
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (session?.access_token) {
+        headers.authorization = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/api/pet-comment', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           slug: pet.slug,
           token,
@@ -318,6 +425,8 @@ export default function PetProfilePage() {
   };
 
   if (state === 'ready' && pet) {
+    const isOwner =
+      Boolean(session?.user.id) && Boolean(pet.creatorUserId) && session?.user.id === pet.creatorUserId;
     const editLink = `/edit/${encodeURIComponent(pet.slug)}${
       token ? `?token=${encodeURIComponent(token)}` : ''
     }`;
@@ -333,9 +442,13 @@ export default function PetProfilePage() {
         <PetProfileScene
           petData={pet}
           editLink={editLink}
-          onEditRequest={handleEditRequest}
+          onEditRequest={isOwner ? handleEditRequest : undefined}
           onOpenActionButtons={() => setIsActionButtonsVisible(true)}
           onCommentSubmit={handleCommentSubmit}
+          onCommentAuthorClick={handleCommentAuthorClick}
+          showEditMenu={isOwner}
+          hideOwnerContact={!isOwner}
+          viewerDisplayName={viewerDisplayName}
           showCardShareSaveButtons={false}
           externalSaveImageTrigger={saveImageTrigger}
         />
@@ -355,6 +468,42 @@ export default function PetProfilePage() {
           }}
         >
           <div className="flex flex-col" style={{ rowGap: '10px' }}>
+            {selectedCommenterProfile && (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    `/${encodeURIComponent(selectedCommenterProfile.slug)}?token=${encodeURIComponent(
+                      selectedCommenterProfile.token
+                    )}`
+                  )
+                }
+                className="w-full rounded-2xl text-gray-700"
+                style={{
+                  background: baseBg,
+                  boxShadow: swappedInsetButtonShadow,
+                  padding: 'clamp(10px, 1.5vh, 16px)',
+                  minHeight: 'clamp(46px, 6.8vh, 56px)',
+                  fontSize: 'clamp(13px, 2vh, 16px)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  columnGap: '8px',
+                }}
+              >
+                <LayoutGrid
+                  aria-hidden="true"
+                  style={{
+                    width: 'clamp(16px, 2.5vh, 20px)',
+                    height: 'clamp(16px, 2.5vh, 20px)',
+                    color: pointColor,
+                  }}
+                />
+                <span>{selectedCommenterProfile.author} 프로필 구경하기</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => void handleShareProfile()}
@@ -413,6 +562,36 @@ export default function PetProfilePage() {
 
             <button
               type="button"
+              onClick={() => void handleGoRandomProfile()}
+              disabled={isRandomNavigating}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+                opacity: isRandomNavigating ? 0.65 : 1,
+              }}
+            >
+              <LayoutGrid
+                aria-hidden="true"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>{isRandomNavigating ? '이동 중...' : '다른 프로필 구경하기'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => navigate('/my-profiles')}
               className="w-full rounded-2xl text-gray-700"
               style={{
@@ -467,6 +646,18 @@ export default function PetProfilePage() {
               <span>새 프로필 만들기</span>
             </button>
           </div>
+          {actionErrorMessage && (
+            <p
+              style={{
+                marginTop: '8px',
+                textAlign: 'center',
+                fontSize: '13px',
+                color: '#dc2626',
+              }}
+            >
+              {actionErrorMessage}
+            </p>
+          )}
         </div>
       </div>
     );

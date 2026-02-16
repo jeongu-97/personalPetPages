@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart, Cake, Weight, MapPin, Phone, Bone, ToyBrick, Share2, Download, Star, MessageCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { buildDefaultFunFacts } from '../lib/funFacts';
-import { PetKind, PetProfileData } from '../types/pet';
+import { PetComment, PetKind, PetProfileData } from '../types/pet';
 
 interface ParallaxProps {
   mouseX: number;
@@ -24,8 +24,11 @@ type PetProfileSceneProps = {
   onShareRequest?: () => void;
   onCommentRequest?: () => void;
   onCommentSubmit?: (payload: CommentSubmitPayload) => Promise<CommentSubmitResult | void> | CommentSubmitResult | void;
+  onCommentAuthorClick?: (comment: PetComment) => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
+  hideOwnerContact?: boolean;
+  viewerDisplayName?: string;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
   showCardShareSaveButtons?: boolean;
@@ -197,8 +200,11 @@ function PetProfileCard({
   onShareRequest,
   onCommentRequest,
   onCommentSubmit,
+  onCommentAuthorClick,
   onSaveRequest,
   isSaving = false,
+  hideOwnerContact = false,
+  viewerDisplayName,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
   showCardShareSaveButtons = true,
@@ -214,8 +220,11 @@ function PetProfileCard({
   onShareRequest?: () => void;
   onCommentRequest?: () => void;
   onCommentSubmit?: (payload: CommentSubmitPayload) => Promise<CommentSubmitResult | void> | CommentSubmitResult | void;
+  onCommentAuthorClick?: (comment: PetComment) => void;
   onSaveRequest?: () => void;
   isSaving?: boolean;
+  hideOwnerContact?: boolean;
+  viewerDisplayName?: string;
   onPhotoUploadRequest?: (file: File) => Promise<void> | void;
   isUploadingPhoto?: boolean;
   showCardShareSaveButtons?: boolean;
@@ -541,7 +550,11 @@ function PetProfileCard({
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const defaultPublicComment = `펫프로필: 귀여운 ${pet.name || '친구'}, 반가워요!`;
+  const defaultPublicComment: PetComment = {
+    author: '펫프로필',
+    text: `귀여운 ${pet.name || '친구'}, 반가워요!`,
+  };
+  const publicComments = pet.comments.length ? pet.comments : [defaultPublicComment];
 
   const handleOpenCommentComposer = (event: any) => {
     stopCardFlipFromChild(event);
@@ -558,7 +571,7 @@ function PetProfileCard({
     if (!onCommentSubmit || isSubmittingComment) return;
 
     const text = commentTextInput.trim();
-    const author = commentAuthorInput.trim();
+    const author = (viewerDisplayName || commentAuthorInput.trim()).trim();
     if (!text) {
       setCommentSubmitError('기록 내용을 입력해 주세요.');
       return;
@@ -572,7 +585,9 @@ function PetProfileCard({
         setCommentSubmitError(result.message || '기록 등록에 실패했어요.');
         return;
       }
-      setCommentAuthorInput('');
+      if (!viewerDisplayName) {
+        setCommentAuthorInput('');
+      }
       setCommentTextInput('');
       setIsCommentComposerOpen(false);
     } catch {
@@ -902,6 +917,7 @@ function PetProfileCard({
       const computedStyle = window.getComputedStyle(sourceElement);
       const cssText = Array.from(computedStyle)
         .filter((property) => !property.startsWith('--'))
+        .filter((property) => property !== 'backdrop-filter' && property !== '-webkit-backdrop-filter')
         .map((property) => {
           const rawValue = computedStyle.getPropertyValue(property);
           if (!rawValue) return '';
@@ -1119,6 +1135,59 @@ function PetProfileCard({
     downloadBlobAsFile(imageBlob, fileName);
   };
 
+  const canUseServerPageCapture = () => {
+    if (typeof window === 'undefined') return false;
+    if (mode !== 'view') return false;
+    const pathname = window.location.pathname || '';
+    if (pathname.startsWith('/draft/')) return false;
+    if (pathname.startsWith('/edit/')) return false;
+    return true;
+  };
+
+  const downloadFrontCardViaServerPage = async (fileName: string) => {
+    if (typeof window === 'undefined') {
+      throw new Error('server_page_capture_unavailable');
+    }
+
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('capture', '1');
+    const sourcePath = `${currentUrl.pathname}${currentUrl.search}`;
+
+    const response = await fetch('/api/card-image', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sourcePath,
+        selector: '[data-capture-card-front="true"]',
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        fileName,
+      }),
+    });
+
+    if (!response.ok) {
+      let reason = `http_${response.status}`;
+      try {
+        const body = await response.json();
+        if (body && typeof body.error === 'string') {
+          reason = body.error;
+        }
+      } catch {
+        // noop
+      }
+      throw new Error(`server_page_capture_failed:${reason}`);
+    }
+
+    const imageBlob = await response.blob();
+    if (!imageBlob || imageBlob.size < 200) {
+      throw new Error('server_page_capture_empty_blob');
+    }
+
+    downloadBlobAsFile(imageBlob, fileName);
+  };
+
   const downloadFrontCardAsPng = async (targetElement: HTMLElement, fileName: string) => {
     const { width, height, wrapper } = await createCaptureWrapper(targetElement);
 
@@ -1261,6 +1330,17 @@ function PetProfileCard({
     isSavingImageRef.current = true;
     setIsSavingImage(true);
     try {
+      if (canUseServerPageCapture()) {
+        try {
+          await downloadFrontCardViaServerPage(downloadName);
+          return;
+        } catch (pageCaptureError) {
+          const pageCaptureCode =
+            pageCaptureError instanceof Error ? pageCaptureError.message : 'unknown_error';
+          console.error('[PetProfileScene] image_save_server_page_failed', pageCaptureCode, pageCaptureError);
+        }
+      }
+
       try {
         await downloadFrontCardViaServer(targetElement, downloadName);
         return;
@@ -1291,7 +1371,7 @@ function PetProfileCard({
       isSavingImageRef.current = false;
       setIsSavingImage(false);
     }
-  }, [pet.slug, pet.name]);
+  }, [mode, pet.slug, pet.name]);
 
   useEffect(() => {
     if (!externalSaveImageTrigger) return;
@@ -1654,7 +1734,11 @@ function PetProfileCard({
                     cursor: isEditMode ? 'text' : 'inherit',
                   }}
                 >
-                  {pet.ownerContact || (isEditMode ? '연락처 입력' : '')}
+                  {isEditMode
+                    ? pet.ownerContact || '연락처 입력'
+                    : hideOwnerContact
+                      ? '비공개'
+                      : pet.ownerContact}
                 </p>
               </div>
             </div>
@@ -1849,19 +1933,42 @@ function PetProfileCard({
             </>
           ) : (
             <>
-              {[
-                ...(pet.comments.length
-                  ? pet.comments.map((comment) =>
-                      comment.author ? `${comment.author}: ${comment.text}` : comment.text
-                    )
-                  : [defaultPublicComment]),
-              ].map((text, index) => (
+              {publicComments.map((comment, index) => (
                 <div key={`comment-row-${index}`} className="flex items-start gap-2 leading-relaxed">
                   <span className="shrink-0 mt-[0.15em]" style={{ color: '#6b7280' }}>
                     •
                   </span>
                   <p className="text-gray-700" style={{ fontSize: 'clamp(11px, 1.8vh, 14px)' }}>
-                    {text}
+                    {comment.author ? (
+                      <>
+                        {comment.authorSlug && comment.authorShareToken && onCommentAuthorClick ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              stopCardFlipFromChild(event);
+                              onCommentAuthorClick(comment);
+                            }}
+                            style={{
+                              color: pointColor,
+                              textDecoration: 'underline',
+                              textUnderlineOffset: '2px',
+                              fontWeight: 600,
+                              border: 'none',
+                              background: 'transparent',
+                              padding: 0,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {comment.author}
+                          </button>
+                        ) : (
+                          <span style={{ fontWeight: 600 }}>{comment.author}</span>
+                        )}
+                        <span>: {comment.text}</span>
+                      </>
+                    ) : (
+                      comment.text
+                    )}
                   </p>
                 </div>
               ))}
@@ -1912,23 +2019,39 @@ function PetProfileCard({
                     border: '1px solid rgba(148, 163, 184, 0.4)',
                   }}
                 >
-                  <input
-                    type="text"
-                    value={commentAuthorInput}
-                    onChange={(event) => setCommentAuthorInput(event.target.value)}
-                    onClick={stopCardFlipFromChild}
-                    placeholder="이름(선택)"
-                    className="w-full"
-                    style={{
-                      height: '34px',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(148, 163, 184, 0.4)',
-                      background: 'rgba(255, 255, 255, 0.9)',
-                      padding: '0 10px',
-                      fontSize: '12px',
-                      color: '#374151',
-                    }}
-                  />
+                  {viewerDisplayName ? (
+                    <div
+                      style={{
+                        borderRadius: '10px',
+                        border: '1px solid rgba(148, 163, 184, 0.4)',
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        padding: '8px 10px',
+                        fontSize: '12px',
+                        color: '#374151',
+                      }}
+                    >
+                      <span className="text-gray-500">작성자</span>
+                      <span style={{ marginLeft: '6px', fontWeight: 600 }}>{viewerDisplayName}</span>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={commentAuthorInput}
+                      onChange={(event) => setCommentAuthorInput(event.target.value)}
+                      onClick={stopCardFlipFromChild}
+                      placeholder="이름(선택)"
+                      className="w-full"
+                      style={{
+                        height: '34px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(148, 163, 184, 0.4)',
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        padding: '0 10px',
+                        fontSize: '12px',
+                        color: '#374151',
+                      }}
+                    />
+                  )}
                   <textarea
                     value={commentTextInput}
                     onChange={(event) => setCommentTextInput(event.target.value)}
@@ -2130,6 +2253,7 @@ function PetProfileCard({
             <div
               className="absolute inset-0 rounded-3xl"
               ref={frontCaptureRef}
+              data-capture-card-front="true"
               style={{
                 background: baseBg,
                 boxShadow: shadows.outer,
@@ -2287,8 +2411,11 @@ export default function PetProfileScene({
   onShareRequest,
   onCommentRequest,
   onCommentSubmit,
+  onCommentAuthorClick,
   onSaveRequest,
   isSaving = false,
+  hideOwnerContact = false,
+  viewerDisplayName,
   onPhotoUploadRequest,
   isUploadingPhoto = false,
   showCardShareSaveButtons = true,
@@ -2475,8 +2602,11 @@ export default function PetProfileScene({
           onShareRequest={onShareRequest}
           onCommentRequest={onCommentRequest}
           onCommentSubmit={onCommentSubmit}
+          onCommentAuthorClick={onCommentAuthorClick}
           onSaveRequest={onSaveRequest}
           isSaving={isSaving}
+          hideOwnerContact={hideOwnerContact}
+          viewerDisplayName={viewerDisplayName}
           onPhotoUploadRequest={onPhotoUploadRequest}
           isUploadingPhoto={isUploadingPhoto}
           showCardShareSaveButtons={showCardShareSaveButtons}

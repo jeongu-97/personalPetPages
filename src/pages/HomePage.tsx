@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Camera, LayoutGrid, Share2, Sparkles } from 'lucide-react';
+import { Camera, LayoutGrid, Share2, Shuffle, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 const previewImage =
@@ -33,7 +33,9 @@ export default function HomePage() {
   const navigate = useNavigate();
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isMovingToMyProfiles, setIsMovingToMyProfiles] = useState(false);
+  const [isMovingToRandomProfile, setIsMovingToRandomProfile] = useState(false);
   const [myProfilesEntryError, setMyProfilesEntryError] = useState<string | null>(null);
+  const [randomProfileEntryError, setRandomProfileEntryError] = useState<string | null>(null);
   const neumoBg = '#faf9f2';
   const neumoShadow = '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff';
   const neumoShadowSoft = '6px 6px 12px #b8bec5, -6px -6px 12px #ffffff';
@@ -96,6 +98,34 @@ export default function HomePage() {
     if (error) {
       setMyProfilesEntryError(error.message || '로그인 이동에 실패했어요.');
       setIsMovingToMyProfiles(false);
+    }
+  };
+
+  const handleGoRandomProfile = async () => {
+    if (isMovingToRandomProfile) return;
+    setRandomProfileEntryError(null);
+    setIsMovingToRandomProfile(true);
+
+    try {
+      const response = await fetch('/api/random-pet');
+      const payload = (await response.json().catch(() => null)) as
+        | { slug?: string; token?: string; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.slug || !payload?.token) {
+        if (payload?.error === 'no_profile_available') {
+          setRandomProfileEntryError('아직 구경할 프로필이 없어요.');
+        } else {
+          setRandomProfileEntryError('다른 프로필을 불러오지 못했어요.');
+        }
+        return;
+      }
+
+      navigate(`/${encodeURIComponent(payload.slug)}?token=${encodeURIComponent(payload.token)}`);
+    } catch {
+      setRandomProfileEntryError('다른 프로필을 불러오지 못했어요.');
+    } finally {
+      setIsMovingToRandomProfile(false);
     }
   };
 
@@ -264,6 +294,29 @@ export default function HomePage() {
             </Link>
             <button
               type="button"
+              onClick={() => void handleGoRandomProfile()}
+              disabled={isMovingToRandomProfile}
+              style={{
+                display: 'inline-flex',
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                borderRadius: '16px',
+                padding: '12px 16px',
+                fontSize: '16px',
+                fontWeight: 700,
+                color: '#4b5563',
+                background: neumoBg,
+                boxShadow: neumoShadowSoft,
+                opacity: isMovingToRandomProfile ? 0.7 : 1,
+              }}
+            >
+              <Shuffle size={16} />
+              <span>{isMovingToRandomProfile ? '불러오는 중...' : '다른 프로필 구경하기'}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => void handleGoMyProfiles()}
               disabled={isMovingToMyProfiles}
               style={{
@@ -289,6 +342,11 @@ export default function HomePage() {
           {myProfilesEntryError && (
             <p style={{ margin: '8px 0 0', textAlign: 'center', fontSize: '13px', color: '#dc2626' }}>
               {myProfilesEntryError}
+            </p>
+          )}
+          {randomProfileEntryError && (
+            <p style={{ margin: '8px 0 0', textAlign: 'center', fontSize: '13px', color: '#dc2626' }}>
+              {randomProfileEntryError}
             </p>
           )}
           <p style={{ margin: '10px 0 0', textAlign: 'center', fontSize: '15px', color: '#6b7280' }}>

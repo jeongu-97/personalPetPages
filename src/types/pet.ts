@@ -1,12 +1,17 @@
 export interface PetComment {
   author: string;
   text: string;
+  authorUserId?: string;
+  authorSlug?: string;
+  authorShareToken?: string;
+  createdAt?: string;
 }
 
 export type PetKind = '' | 'dog' | 'cat' | 'bird' | 'fish';
 
 export interface PetProfileData {
   id?: string;
+  creatorUserId?: string;
   slug: string;
   shareToken: string;
   petKind?: PetKind;
