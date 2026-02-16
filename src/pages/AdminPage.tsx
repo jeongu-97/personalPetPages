@@ -295,6 +295,9 @@ export default function AdminPage() {
       options: {
         redirectTo: `${window.location.origin}/admin`,
         scopes: 'profile_nickname profile_image',
+        queryParams: {
+          scope: 'profile_nickname profile_image',
+        },
       },
     });
 

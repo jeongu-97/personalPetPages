@@ -97,6 +97,9 @@ export default function PetProfilePage() {
         options: {
           redirectTo: `${window.location.origin}${location.pathname}?${nextSearchParams.toString()}`,
           scopes: 'profile_nickname profile_image',
+          queryParams: {
+            scope: 'profile_nickname profile_image',
+          },
         },
       });
 
