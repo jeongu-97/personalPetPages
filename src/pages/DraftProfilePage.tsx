@@ -124,8 +124,10 @@ export default function DraftProfilePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginIntentLabel, setLoginIntentLabel] = useState('편집');
+  const [isNewProfileButtonVisible, setIsNewProfileButtonVisible] = useState(false);
   const publishTriggeredRef = useRef(false);
   const autoModalOpenedRef = useRef(false);
+  const ctaTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const shouldPublishAfterLogin = searchParams.get('post_login') === 'publish';
 
@@ -198,7 +200,6 @@ export default function DraftProfilePage() {
           redirectTo: `${window.location.origin}/draft/${encodeURIComponent(
             draftId
           )}?${nextParams.toString()}`,
-          scopes: 'profile_nickname profile_image',
         },
       });
       if (error) {
@@ -297,6 +298,50 @@ export default function DraftProfilePage() {
     setIsLoginModalOpen(true);
   }, [state, draftPet, shouldPublishAfterLogin]);
 
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 6) return;
+      setIsNewProfileButtonVisible(event.deltaY < 0);
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      ctaTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const start = ctaTouchStartRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+
+      const deltaX = touch.clientX - start.x;
+      const deltaY = start.y - touch.clientY;
+      if (Math.abs(deltaY) < 20 || Math.abs(deltaY) <= Math.abs(deltaX) + 8) return;
+
+      setIsNewProfileButtonVisible(deltaY > 0);
+      ctaTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchEnd = () => {
+      ctaTouchStartRef.current = null;
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, []);
+
   if (state === 'loading') {
     return (
       <div className="min-h-screen bg-[#e0e5ec] flex items-center justify-center text-gray-600">
@@ -331,46 +376,58 @@ export default function DraftProfilePage() {
     baseBg,
     0.38
   )}, inset -8px -8px 16px ${darkenHex(baseBg, 0.22)}`;
-  const newProfileButton = (
-    <button
-      type="button"
-      onClick={() => navigate('/start')}
-      className="w-full rounded-2xl text-gray-700"
-      style={{
-        background: baseBg,
-        boxShadow: swappedInsetButtonShadow,
-        padding: 'clamp(10px, 1.5vh, 16px)',
-        minHeight: 'clamp(46px, 6.8vh, 56px)',
-        fontSize: 'clamp(13px, 2vh, 16px)',
-        fontWeight: 600,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        columnGap: '8px',
-      }}
-    >
-      <PlusCircle
-        aria-hidden="true"
-        style={{
-          width: 'clamp(16px, 2.5vh, 20px)',
-          height: 'clamp(16px, 2.5vh, 20px)',
-          color: pointColor,
-        }}
-      />
-      <span>새 프로필 만들기</span>
-    </button>
-  );
 
   return (
     <div className="min-h-screen">
       <PetProfileScene
         petData={draftPet}
-        bottomAction={newProfileButton}
-        bottomActionMode="floating-on-scroll"
         onShareRequest={() => openLoginModal('share')}
         onCommentRequest={() => openLoginModal('comment')}
         onEditRequest={() => openLoginModal('edit')}
       />
+      <div
+        style={{
+          position: 'fixed',
+          left: '50%',
+          transform: isNewProfileButtonVisible
+            ? 'translate(-50%, 0)'
+            : 'translate(-50%, calc(100% + 24px))',
+          bottom: '18px',
+          width: 'min(92vw, 520px)',
+          zIndex: 74,
+          opacity: isNewProfileButtonVisible ? 1 : 0,
+          transition: 'transform 260ms ease, opacity 200ms ease',
+          pointerEvents: isNewProfileButtonVisible ? 'auto' : 'none',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate('/start')}
+          className="w-full rounded-2xl text-gray-700"
+          style={{
+            background: baseBg,
+            boxShadow: swappedInsetButtonShadow,
+            padding: 'clamp(10px, 1.5vh, 16px)',
+            minHeight: 'clamp(46px, 6.8vh, 56px)',
+            fontSize: 'clamp(13px, 2vh, 16px)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            columnGap: '8px',
+          }}
+        >
+          <PlusCircle
+            aria-hidden="true"
+            style={{
+              width: 'clamp(16px, 2.5vh, 20px)',
+              height: 'clamp(16px, 2.5vh, 20px)',
+              color: pointColor,
+            }}
+          />
+          <span>새 프로필 만들기</span>
+        </button>
+      </div>
       {message && !isLoginModalOpen && (
         <div
           style={{

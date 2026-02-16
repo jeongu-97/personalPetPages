@@ -99,7 +99,6 @@ export default function PetProfilePage() {
         provider: 'kakao',
         options: {
           redirectTo: `${window.location.origin}${location.pathname}?${nextSearchParams.toString()}`,
-          scopes: 'profile_nickname profile_image',
         },
       });
 
