@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Session } from '@supabase/supabase-js';
+import { Download, PlusCircle, Share2 } from 'lucide-react';
 import PetProfileLoadingSkeleton from '../components/PetProfileLoadingSkeleton';
 import PetProfileScene from '../components/PetProfileScene';
 import { PetProfileData } from '../types/pet';
@@ -9,6 +10,57 @@ import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
 import { supabase } from '../lib/supabaseClient';
 
 type LoadState = 'loading' | 'ready' | 'not_found' | 'error';
+type Rgb = { r: number; g: number; b: number };
+
+const isValidHexColor = (value?: string) =>
+  typeof value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+
+const resolveCardBackground = (gender: string, backgroundColor?: string) => {
+  if (isValidHexColor(backgroundColor)) return backgroundColor.trim();
+  return gender === '암컷' ? '#f7e5ef' : '#e0e5ec';
+};
+
+const resolveAccentColor = (gender: string, accentColor?: string) => {
+  if (isValidHexColor(accentColor)) return accentColor.trim();
+  if (gender === '암컷') return '#ec4899';
+  if (gender === '수컷') return '#3b82f6';
+  return '#a855f7';
+};
+
+const hexToRgb = (hex: string): Rgb => {
+  const raw = hex.replace('#', '').trim();
+  const normalized =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((ch) => `${ch}${ch}`)
+          .join('')
+      : raw;
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+};
+
+const rgbToHex = ({ r, g, b }: Rgb) =>
+  `#${[r, g, b]
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0'))
+    .join('')}`;
+
+const mixHex = (hex: string, target: Rgb, ratio: number) => {
+  const base = hexToRgb(hex);
+  const t = Math.max(0, Math.min(1, ratio));
+  return rgbToHex({
+    r: base.r + (target.r - base.r) * t,
+    g: base.g + (target.g - base.g) * t,
+    b: base.b + (target.b - base.b) * t,
+  });
+};
+
+const lightenHex = (hex: string, ratio: number) => mixHex(hex, { r: 255, g: 255, b: 255 }, ratio);
+const darkenHex = (hex: string, ratio: number) => mixHex(hex, { r: 0, g: 0, b: 0 }, ratio);
 
 export default function PetProfilePage() {
   const { slug } = useParams();
@@ -17,6 +69,9 @@ export default function PetProfilePage() {
   const [state, setState] = useState<LoadState>('loading');
   const [pet, setPet] = useState<PetProfileData | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [isActionButtonsVisible, setIsActionButtonsVisible] = useState(false);
+  const [saveImageTrigger, setSaveImageTrigger] = useState(0);
+  const actionTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const searchParams = new URLSearchParams(location.search);
   const isCreatedFromSurvey = searchParams.get('created') === '1';
   const token = searchParams.get('token') ?? '';
@@ -140,14 +195,195 @@ export default function PetProfilePage() {
     );
   }, [state, isCreatedFromSurvey, location.pathname, location.search, navigate]);
 
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 6) return;
+      setIsActionButtonsVisible(event.deltaY < 0);
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      actionTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const start = actionTouchStartRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+
+      const deltaX = touch.clientX - start.x;
+      const deltaY = start.y - touch.clientY;
+      if (Math.abs(deltaY) < 20 || Math.abs(deltaY) <= Math.abs(deltaX) + 8) return;
+
+      setIsActionButtonsVisible(deltaY > 0);
+      actionTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchEnd = () => {
+      actionTouchStartRef.current = null;
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, []);
+
+  const handleShareProfile = async () => {
+    if (typeof window === 'undefined') return;
+    const shareUrl = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${pet?.name || '반려동물'} 프로필`,
+          url: shareUrl,
+        });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  };
+
   if (state === 'ready' && pet) {
     const editLink = `/edit/${encodeURIComponent(pet.slug)}${
       token ? `?token=${encodeURIComponent(token)}` : ''
     }`;
+    const baseBg = resolveCardBackground(pet.gender, pet.backgroundColor);
+    const pointColor = resolveAccentColor(pet.gender, pet.accentColor);
+    const swappedInsetButtonShadow = `inset 8px 8px 16px ${lightenHex(
+      baseBg,
+      0.38
+    )}, inset -8px -8px 16px ${darkenHex(baseBg, 0.22)}`;
+
     return (
-      <>
-        <PetProfileScene petData={pet} editLink={editLink} onEditRequest={handleEditRequest} />
-      </>
+      <div className="min-h-screen">
+        <PetProfileScene
+          petData={pet}
+          editLink={editLink}
+          onEditRequest={handleEditRequest}
+          showCardShareSaveButtons={false}
+          externalSaveImageTrigger={saveImageTrigger}
+        />
+        <div
+          style={{
+            position: 'fixed',
+            left: '50%',
+            transform: isActionButtonsVisible
+              ? 'translate(-50%, 0)'
+              : 'translate(-50%, calc(100% + 24px))',
+            bottom: '18px',
+            width: 'min(92vw, 520px)',
+            zIndex: 74,
+            opacity: isActionButtonsVisible ? 1 : 0,
+            transition: 'transform 260ms ease, opacity 200ms ease',
+            pointerEvents: isActionButtonsVisible ? 'auto' : 'none',
+          }}
+        >
+          <div className="flex flex-col" style={{ rowGap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => void handleShareProfile()}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <Share2
+                aria-hidden="true"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>프로필 공유하기</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSaveImageTrigger((prev) => prev + 1)}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <Download
+                aria-hidden="true"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>이미지로 저장</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/start')}
+              className="w-full rounded-2xl text-gray-700"
+              style={{
+                background: baseBg,
+                boxShadow: swappedInsetButtonShadow,
+                padding: 'clamp(10px, 1.5vh, 16px)',
+                minHeight: 'clamp(46px, 6.8vh, 56px)',
+                fontSize: 'clamp(13px, 2vh, 16px)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                columnGap: '8px',
+              }}
+            >
+              <PlusCircle
+                aria-hidden="true"
+                style={{
+                  width: 'clamp(16px, 2.5vh, 20px)',
+                  height: 'clamp(16px, 2.5vh, 20px)',
+                  color: pointColor,
+                }}
+              />
+              <span>새 프로필 만들기</span>
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
