@@ -154,6 +154,25 @@ export default function AdminPage() {
     setAuthMessage(message);
   };
 
+  const readErrorMessage = async (response: Response, fallback: string) => {
+    const rawText = await response.text().catch(() => '');
+    if (!rawText) {
+      return `${fallback} (HTTP ${response.status})`;
+    }
+
+    try {
+      const parsed = JSON.parse(rawText) as { error?: string } | null;
+      if (parsed?.error) {
+        return parsed.error;
+      }
+    } catch {
+      // Ignore non-JSON error payloads.
+    }
+
+    const compactText = rawText.replace(/\s+/g, ' ').trim();
+    return compactText ? `${fallback} (HTTP ${response.status}): ${compactText}` : `${fallback} (HTTP ${response.status})`;
+  };
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -235,16 +254,17 @@ export default function AdminPage() {
           },
         });
 
-        const payload = (await response.json().catch(() => null)) as
-          | { pets?: PetRecord[]; error?: string }
-          | null;
-
         if (!isMounted) return;
 
         if (!response.ok) {
-          revokeAdminAccess(payload?.error || '관리자 데이터를 불러오지 못했어요.');
+          const errorMessage = await readErrorMessage(response, '관리자 데이터를 불러오지 못했어요.');
+          revokeAdminAccess(errorMessage);
           return;
         }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { pets?: PetRecord[]; error?: string }
+          | null;
 
         setPets((payload?.pets ?? []).map(toPetProfile));
         setIsAdmin(true);
@@ -407,13 +427,13 @@ export default function AdminPage() {
         method: 'DELETE',
         headers: buildAdminHeaders(),
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
       if (!response.ok) {
+        const errorMessage = await readErrorMessage(response, '삭제에 실패했어요.');
         if (response.status === 401 || response.status === 403) {
-          revokeAdminAccess(payload?.error || '관리자 인증이 필요해요.');
+          revokeAdminAccess(errorMessage);
         } else {
-          setStatus(payload?.error || '삭제에 실패했어요.');
+          setStatus(errorMessage);
         }
         setIsDeleting(false);
         return;
@@ -480,18 +500,20 @@ export default function AdminPage() {
           pet: toPetRecord(payload),
         }),
       });
-      const responsePayload = (await response.json().catch(() => null)) as
-        | { pet?: PetRecord; error?: string }
-        | null;
 
       if (!response.ok) {
+        const errorMessage = await readErrorMessage(response, '저장에 실패했어요.');
         if (response.status === 401 || response.status === 403) {
-          revokeAdminAccess(responsePayload?.error || '관리자 인증이 필요해요.');
+          revokeAdminAccess(errorMessage);
         } else {
-          setStatus(responsePayload?.error || '저장에 실패했어요.');
+          setStatus(errorMessage);
         }
         return;
       }
+
+      const responsePayload = (await response.json().catch(() => null)) as
+        | { pet?: PetRecord; error?: string }
+        | null;
 
       if (responsePayload?.pet) {
         const next = toPetProfile(responsePayload.pet);
