@@ -1,7 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
-import { getPetOwnerClaims, removePetOwnerClaim } from '../lib/petOwnerClaim';
 import { supabase } from '../lib/supabaseClient';
 import { PROFILE_SURVEY_DRAFT_KEY } from '../lib/profileSurveyDraft';
 import { PetComment, PetProfileData, emptyPetProfile } from '../types/pet';
@@ -110,6 +109,8 @@ export default function AdminPage() {
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [isKakaoSigningIn, setIsKakaoSigningIn] = useState(false);
+  const [isAuthorizing, setIsAuthorizing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [pets, setPets] = useState<PetProfileData[]>([]);
   const [form, setForm] = useState<PetProfileData>(emptyPetProfile);
   const [status, setStatus] = useState<string | null>(null);
@@ -134,6 +135,24 @@ export default function AdminPage() {
 
   const statusClass =
     status && /주소|실패|못했|필요|로그인/.test(status) ? 'text-red-500' : 'text-gray-600';
+
+  const buildAdminHeaders = (includeJson = false) => {
+    const headers: Record<string, string> = {};
+    if (includeJson) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (session?.access_token) {
+      headers.authorization = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  };
+
+  const revokeAdminAccess = (message: string) => {
+    setIsAdmin(false);
+    setPets([]);
+    setStatus(null);
+    setAuthMessage(message);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -196,53 +215,54 @@ export default function AdminPage() {
   }, [hasSupabaseEnv]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session?.access_token) {
+      setIsAdmin(false);
+      setIsAuthorizing(false);
+      setPets([]);
+      return;
+    }
 
-    const claimPendingOwnerships = async () => {
-      if (typeof window === 'undefined') return false;
-      const claims = getPetOwnerClaims();
-      if (!claims.length) return false;
-
-      let claimedAny = false;
-      for (const claim of claims) {
-        const { data, error } = await supabase.rpc('claim_pet_ownership', {
-          p_slug: claim.slug,
-          p_claim_token: claim.token,
-        });
-
-        if (error) {
-          continue;
-        }
-
-        if (data === true) {
-          removePetOwnerClaim(claim.slug);
-          claimedAny = true;
-        }
-      }
-
-      return claimedAny;
-    };
+    let isMounted = true;
 
     const loadPets = async () => {
-      const claimedAny = await claimPendingOwnerships();
-      const { data, error } = await supabase
-        .from('pets')
-        .select('*')
-        .order('updated_at', { ascending: false })
-        .returns<PetRecord[]>();
+      setIsAuthorizing(true);
+      setAuthMessage(null);
 
-      if (error) {
-        setStatus('데이터를 불러오지 못했어요.');
-        return;
-      }
+      try {
+        const response = await fetch('/api/admin-pets', {
+          headers: {
+            authorization: `Bearer ${session.access_token}`,
+          },
+        });
 
-      setPets((data ?? []).map(toPetProfile));
-      if (claimedAny) {
-        setStatus('로그인 계정에 설문으로 만든 프로필 편집 권한을 연결했어요.');
+        const payload = (await response.json().catch(() => null)) as
+          | { pets?: PetRecord[]; error?: string }
+          | null;
+
+        if (!isMounted) return;
+
+        if (!response.ok) {
+          revokeAdminAccess(payload?.error || '관리자 데이터를 불러오지 못했어요.');
+          return;
+        }
+
+        setPets((payload?.pets ?? []).map(toPetProfile));
+        setIsAdmin(true);
+      } catch {
+        if (!isMounted) return;
+        revokeAdminAccess('네트워크 오류로 관리자 데이터를 불러오지 못했어요.');
+      } finally {
+        if (isMounted) {
+          setIsAuthorizing(false);
+        }
       }
     };
 
     loadPets();
+
+    return () => {
+      isMounted = false;
+    };
   }, [session]);
 
   useEffect(() => {
@@ -283,6 +303,16 @@ export default function AdminPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
+    setIsAdmin(false);
+    setIsAuthorizing(false);
+    setPets([]);
+    setForm(emptyPetProfile);
+    setSavedSlug('');
+    setSavedShareToken('');
+    setQrDataUrl(null);
+    setQrStatus(null);
+    setStatus(null);
+    setAuthMessage(null);
   };
 
   const handleKakaoLogin = async () => {
@@ -359,26 +389,51 @@ export default function AdminPage() {
     setIsDeleting(true);
     setStatus(null);
 
-    const { error } = await (targetId
-      ? supabase.from('pets').delete().eq('id', targetId)
-      : supabase.from('pets').delete().eq('slug', targetSlug));
-
-    if (error) {
-      setStatus('삭제에 실패했어요.');
+    if (!session?.access_token) {
+      setStatus('관리자 인증이 필요해요.');
       setIsDeleting(false);
       return;
     }
 
-    setPets((prev) => prev.filter((item) => (targetId ? item.id !== targetId : item.slug !== targetSlug)));
-    setForm(emptyPetProfile);
-    setSavedSlug('');
-    setSavedShareToken('');
-    setAgeUnit('years');
-    setQrDataUrl(null);
-    setQrStatus(null);
+    try {
+      const searchParams = new URLSearchParams();
+      if (targetId) {
+        searchParams.set('id', targetId);
+      } else {
+        searchParams.set('slug', targetSlug);
+      }
 
-    setStatus('삭제 완료');
-    setIsDeleting(false);
+      const response = await fetch(`/api/admin-pets?${searchParams.toString()}`, {
+        method: 'DELETE',
+        headers: buildAdminHeaders(),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          revokeAdminAccess(payload?.error || '관리자 인증이 필요해요.');
+        } else {
+          setStatus(payload?.error || '삭제에 실패했어요.');
+        }
+        setIsDeleting(false);
+        return;
+      }
+
+      setPets((prev) =>
+        prev.filter((item) => (targetId ? item.id !== targetId : item.slug !== targetSlug))
+      );
+      setForm(emptyPetProfile);
+      setSavedSlug('');
+      setSavedShareToken('');
+      setAgeUnit('years');
+      setQrDataUrl(null);
+      setQrStatus(null);
+      setStatus('삭제 완료');
+    } catch {
+      setStatus('네트워크 오류로 삭제에 실패했어요.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -389,19 +444,13 @@ export default function AdminPage() {
       return;
     }
 
-    const { data: existing, error: existingError } = await supabase
-      .from('pets')
-      .select('id')
-      .eq('slug', sanitizedSlug)
-      .maybeSingle();
-
-    if (existingError) {
-      setStatus('프로필 주소 확인에 실패했어요.');
+    if (isAddressChangedOnExisting) {
+      setStatus('프로필 주소는 저장 후 수정할 수 없어요. 기존 주소로 저장해 주세요.');
       return;
     }
 
-    if (existing?.id && existing.id !== form.id) {
-      setStatus('이미 사용 중인 프로필 주소입니다.');
+    if (!session?.access_token) {
+      setStatus('관리자 인증이 필요해요.');
       return;
     }
 
@@ -423,41 +472,49 @@ export default function AdminPage() {
       shareToken: form.shareToken || generateToken(),
     };
 
-    const { data, error } = await supabase
-      .from('pets')
-      .upsert(toPetRecord(payload), { onConflict: 'slug' })
-      .select()
-      .maybeSingle<PetRecord>();
-
-    if (error) {
-      if (isAddressChangedOnExisting) {
-        setStatus('프로필 주소는 저장 후 수정할 수 없어요. 기존 주소로 저장해 주세요.');
-      } else {
-        setStatus('저장에 실패했어요.');
-      }
-      setIsSaving(false);
-      return;
-    }
-
-    if (data) {
-      const next = toPetProfile(data);
-      setForm(next);
-      setSavedSlug(next.slug);
-      setSavedShareToken(next.shareToken);
-      setPets((prev) => {
-        const exists = prev.find((item) => item.slug === next.slug);
-        if (exists) {
-          return prev.map((item) => (item.slug === next.slug ? next : item));
-        }
-        return [next, ...prev];
+    try {
+      const response = await fetch('/api/admin-pets', {
+        method: 'POST',
+        headers: buildAdminHeaders(true),
+        body: JSON.stringify({
+          pet: toPetRecord(payload),
+        }),
       });
-      setStatus('저장 완료');
-    } else {
-      setSavedSlug(payload.slug);
-      setSavedShareToken(payload.shareToken);
-    }
+      const responsePayload = (await response.json().catch(() => null)) as
+        | { pet?: PetRecord; error?: string }
+        | null;
 
-    setIsSaving(false);
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          revokeAdminAccess(responsePayload?.error || '관리자 인증이 필요해요.');
+        } else {
+          setStatus(responsePayload?.error || '저장에 실패했어요.');
+        }
+        return;
+      }
+
+      if (responsePayload?.pet) {
+        const next = toPetProfile(responsePayload.pet);
+        setForm(next);
+        setSavedSlug(next.slug);
+        setSavedShareToken(next.shareToken);
+        setPets((prev) => {
+          const exists = prev.find((item) => item.slug === next.slug);
+          if (exists) {
+            return prev.map((item) => (item.slug === next.slug ? next : item));
+          }
+          return [next, ...prev];
+        });
+        setStatus('저장 완료');
+      } else {
+        setSavedSlug(payload.slug);
+        setSavedShareToken(payload.shareToken);
+      }
+    } catch {
+      setStatus('네트워크 오류로 저장에 실패했어요.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleRegenerateToken = () => {
@@ -587,6 +644,54 @@ export default function AdminPage() {
             </button>
           </div>
           {authMessage && <p className="text-center text-red-500 mt-3">{authMessage}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthorizing) {
+    return (
+      <div className="min-h-screen bg-[#e0e5ec] flex items-center justify-center px-6">
+        <div
+          className="rounded-3xl max-w-md w-full text-center"
+          style={{
+            background: '#e0e5ec',
+            boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
+            padding: '32px',
+          }}
+        >
+          <p className="text-gray-600">관리자 권한을 확인하고 있어요...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#e0e5ec] flex items-center justify-center px-6">
+        <div
+          className="rounded-3xl max-w-md w-full text-center"
+          style={{
+            background: '#e0e5ec',
+            boxShadow: '20px 20px 40px #a3b1c6, -20px -20px 40px #ffffff',
+            padding: '32px',
+          }}
+        >
+          <h1 className="text-center mb-4" style={{ fontSize: '24px' }}>
+            관리자 접근 제한
+          </h1>
+          <p className="text-red-500">{authMessage || '관리자 권한이 있는 계정으로만 접근할 수 있어요.'}</p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-4 inline-flex items-center justify-center rounded-2xl px-12 py-3 text-base font-medium text-gray-700 min-w-[200px]"
+            style={{
+              background: '#ffe6e6',
+              boxShadow: '8px 8px 16px #b8bec5, -8px -8px 16px #ffffff',
+            }}
+          >
+            로그아웃
+          </button>
         </div>
       </div>
     );
